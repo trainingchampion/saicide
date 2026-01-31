@@ -28,7 +28,7 @@ const io = new Server(server, {
     cors: { origin: '*' },
     path: '/socket.io/'
 });
-const PORT = 4000;
+const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
