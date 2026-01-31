@@ -26,6 +26,5 @@ RUN npm run build
 # Expose the port the server runs on
 EXPOSE 4000
 
-# Start the server (using tsx to run the TypeScript server file)
-# The server/index.ts is configured to serve the built 'dist' folder
-CMD ["npx", "tsx", "server/index.ts"]
+# Start the server
+CMD ["npm", "start"]
