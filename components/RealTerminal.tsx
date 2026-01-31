@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useMemo } from 'react';
-import { Terminal } from 'xterm';
-import { FitAddon } from 'xterm-addon-fit';
+import { Terminal } from '@xterm/xterm';
+import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon } from '@xterm/addon-search';
+import { WebglAddon } from '@xterm/addon-webgl';
 import { io, Socket } from 'socket.io-client';
 import { FileNode, GitStatus } from '../types';
 import { 
@@ -12,6 +14,7 @@ import {
     Power
 } from 'lucide-react';
 import aiService from '../services/geminiService';
+import confetti from 'canvas-confetti';
 
 const XTERM_CSS = `
 .xterm{cursor:text;position:relative;user-select:none;-ms-user-select:none;-webkit-user-select:none}.xterm.focus,.xterm:focus{outline:none}.xterm .xterm-helpers{position:absolute;z-index:5}.xterm .xterm-helper-textarea{position:absolute;opacity:0;z-index:-5;margin:0;cursor:default;width:0;height:0;overflow:hidden;white-space:nowrap}.xterm .composition-view{background:#000;color:#FFF;display:none;position:absolute;white-space:pre;z-index:1}.xterm .composition-view.active{display:block}.xterm .xterm-viewport{background-color:transparent !important;overflow-y:scroll;cursor:default;position:absolute;right:0;left:0;top:0;bottom:0}.xterm .xterm-screen{position:relative}.xterm .xterm-screen canvas{position:absolute;left:0;top:0}.xterm-char-measure-element{display:inline-block;visibility:hidden;position:absolute;left:0;top:0}.xterm.enable-mouse-events{cursor:default}.xterm.xterm-cursor-pointer{cursor:pointer}.xterm.xterm-cursor-crosshair{cursor:crosshair}.xterm .xterm-accessibility,.xterm .xterm-message{position:absolute;left:0;top:0;bottom:0;right:0;z-index:10;color:transparent}.xterm .live-region{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.xterm-dim{opacity:0.5}.xterm-underline{text-decoration:underline}
@@ -234,16 +237,40 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     term.loadAddon(fitAddon); 
     fitAddonRef.current = fitAddon;
 
+    const searchAddon = new SearchAddon();
+    term.loadAddon(searchAddon);
+
     term.open(terminalRef.current);
+
+    try {
+        const webglAddon = new WebglAddon();
+        term.loadAddon(webglAddon);
+    } catch (e) {
+        console.warn('WebGL addon failed to load, falling back to canvas/dom renderer');
+    }
+
     fitAddon.fit();
     termRef.current = term;
 
-    const socket = io(window.location.origin, { path: '/socket.io/' });
+    const socket = io(window.location.origin, { 
+        path: '/socket.io/',
+        reconnection: true,
+        reconnectionAttempts: 5
+    });
     socketRef.current = socket;
 
     socket.on('connect', () => {
         setIsUsingRealShell(true);
         term.writeln('\x1b[1;36m[Sai] Neural link established with local kernel.\x1b[0m');
+        socket.emit('resize', { cols: term.cols, rows: term.rows });
+        
+        // Celebration on first connection
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#67e8f9', '#0891b2', '#ffffff']
+        });
     });
 
     socket.on('output', (data) => {
@@ -257,7 +284,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     });
 
     term.onData(async (data) => {
-        if (isUsingRealShell) {
+        if (socket.connected) {
             socket.emit('input', data);
         } else {
             const code = data.charCodeAt(0);
@@ -287,7 +314,12 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     });
 
     const resizeObserver = new ResizeObserver(() => {
-        if (fitAddonRef.current) fitAddonRef.current.fit();
+        if (fitAddonRef.current) {
+            fitAddonRef.current.fit();
+            if (socket.connected) {
+                socket.emit('resize', { cols: term.cols, rows: term.rows });
+            }
+        }
     });
     resizeObserver.observe(terminalRef.current);
 

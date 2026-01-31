@@ -42,10 +42,15 @@ try {
 }
 
 // Shell configuration
-const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || 'bash');
+const getShell = () => {
+    if (os.platform() === 'win32') return 'powershell.exe';
+    if (os.platform() === 'darwin') return '/bin/zsh';
+    return '/bin/bash';
+};
+const shell = getShell();
 
 io.on('connection', (socket) => {
-  console.log('[Terminal] Client connected to socket session');
+  console.log(`[Terminal] Client connected: ${socket.id}`);
   
   if (pty) {
       try {
@@ -61,30 +66,32 @@ io.on('connection', (socket) => {
             }
         });
         
-        ptyProcess.onData((data: string) => socket.emit('output', data));
+        ptyProcess.onData((data: string) => socket.emit('terminal-output', data));
         
-        socket.on('input', (data: string) => {
+        socket.on('terminal-input', (data: string) => {
             if (ptyProcess) ptyProcess.write(data);
         });
 
         socket.on('resize', ({ cols, rows }: { cols: number, rows: number }) => {
-            if (ptyProcess) ptyProcess.resize(cols, rows);
+            if (ptyProcess) {
+                try {
+                    ptyProcess.resize(cols, rows);
+                } catch (e) {}
+            }
         });
         
         socket.on('disconnect', () => {
-            console.log('[Terminal] Session disconnected');
+            console.log(`[Terminal] Socket disconnected: ${socket.id}`);
             try {
                 ptyProcess.kill();
-            } catch (e) {
-                // Ignore kill errors
-            }
+            } catch (e) {}
         });
 
         // Initial welcome message from backend
-        socket.emit('output', '\x1b[1;32m[Sai Kernel] Backend session initialized.\x1b[0m\r\n');
+        socket.emit('terminal-output', '\x1b[1;36m[Sai Kernel] Virtualized PTY Link Active.\x1b[0m\r\n');
       } catch (err) {
         console.error('[Terminal] PTY Spawn Error:', err);
-        socket.emit('output', '\r\n\x1b[31mError: Failed to initialize terminal session on backend.\x1b[0m\r\n');
+        socket.emit('terminal-output', `\r\n\x1b[31mError: Failed to initialize terminal session on backend: ${err instanceof Error ? err.message : String(err)}\x1b[0m\r\n`);
       }
   } else {
       socket.emit('output', '\r\n\x1b[33m[Warning] Server running without node-pty. Using Frontend Simulation Mode.\x1b[0m\r\n');

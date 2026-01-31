@@ -99,6 +99,7 @@ import DocumentEditorPane from '../../components/DocumentEditorPane';
 import CollaborationSidebarPane from '../../components/collaboration/CollaborationSidebarPane';
 import { TeamCollaborationPane } from '../../components/TeamCollaborationPane';
 import GhostAgent from '../../components/GhostAgent';
+import NeuralHUD from '../../components/NeuralHUD';
 import DeploymentCenter from '../../components/DeploymentCenter';
 import TeamHub from '../../components/TeamHub';
 import { FloatingChatWidget } from '../../components/collaboration/FloatingChatWidget';
@@ -1321,6 +1322,9 @@ const CloudStudio: React.FC<CloudStudioProps> = ({ design, setDesign }) => {
       {ghostStatus !== 'idle' && (
         <GhostAgent status={ghostStatus} steps={ghostSteps} currentAction={currentGhostAction} onClose={() => setGhostStatus('idle')} />
       )}
+
+      {/* Neural HUD Overlay */}
+      <NeuralHUD status={ghostStatus === 'executing' ? 'executing' : ghostStatus === 'planning' ? 'thinking' : 'idle'} />
 
       <div className="flex-1 flex flex-col pt-14 overflow-y-auto custom-scrollbar relative">
         {!currentUser ? (
