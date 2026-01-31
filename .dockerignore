@@ -1,0 +1,10 @@
+node_modules
+dist
+.git
+.github
+.env.local
+Dockerfile
+.dockerignore
+npm-debug.log
+error
+.DS_Store
