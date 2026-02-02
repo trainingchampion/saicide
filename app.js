@@ -9,11 +9,15 @@ const distPath = path.join(__dirname, 'dist');
 
 // Debug endpoint
 app.get('/debug', (req, res) => {
+  const indexContent = fs.existsSync(path.join(distPath, 'index.html')) 
+    ? fs.readFileSync(path.join(distPath, 'index.html'), 'utf8').substring(0, 500)
+    : 'NOT FOUND';
   const info = {
     distPath: distPath,
     distExists: fs.existsSync(distPath),
     distFiles: fs.existsSync(distPath) ? fs.readdirSync(distPath) : [],
-    rootFiles: fs.readdirSync(__dirname).slice(0, 15)
+    rootFiles: fs.readdirSync(__dirname).slice(0, 15),
+    indexHtmlPreview: indexContent
   };
   res.json(info);
 });
