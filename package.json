@@ -7,6 +7,7 @@
     "dev": "concurrently \"vite\" \"npm run dev:server\"",
     "dev:server": "tsx watch server/index.ts",
     "build": "vite build",
+    "start": "node server.js",
     "preview": "vite preview",
     "install:claude": "npm install -g @anthropic-ai/claude-code"
   },

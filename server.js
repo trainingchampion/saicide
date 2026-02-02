@@ -2,7 +2,9 @@ const express = require('express');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 3000;
+
+const distPath = path.join(__dirname, 'dist');
 
 // MIME types for proper static file serving
 const mimeTypes = {
@@ -25,23 +27,14 @@ const mimeTypes = {
   '.wasm': 'application/wasm',
 };
 
-// Set correct MIME types
-app.use((req, res, next) => {
-  const ext = path.extname(req.path).toLowerCase();
-  if (mimeTypes[ext]) {
-    res.type(mimeTypes[ext]);
-  }
-  next();
-});
-
-// Serve static files from dist with proper options
-app.use(express.static(path.join(__dirname, 'dist'), {
+// Serve static files from dist with proper MIME types
+app.use(express.static(distPath, {
   setHeaders: (res, filePath) => {
     const ext = path.extname(filePath).toLowerCase();
     if (mimeTypes[ext]) {
       res.setHeader('Content-Type', mimeTypes[ext]);
     }
-    // Cache static assets
+    // Cache static assets for 1 year
     if (ext === '.js' || ext === '.css' || ext === '.woff2') {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
@@ -53,12 +46,11 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// SPA fallback - serve index.html for all routes (Express 5.x syntax)
-app.use((req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
+// SPA fallback - serve index.html for all other routes
+app.get('*', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// Bind to 0.0.0.0 (required for Cloud Run)
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
