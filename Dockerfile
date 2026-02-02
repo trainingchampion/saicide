@@ -15,17 +15,20 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage - use unprivileged nginx for Cloud Run
-FROM nginxinc/nginx-unprivileged:alpine
+# Production stage - simple Node.js static server
+FROM node:20-alpine
 
-# Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+WORKDIR /app
+
+# Install serve globally
+RUN npm install -g serve
 
 # Copy built assets from builder stage
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/dist ./dist
 
 # Cloud Run uses port 8080
+ENV PORT=8080
 EXPOSE 8080
 
-# Start nginx (runs as non-root user)
-CMD ["nginx", "-g", "daemon off;"]
+# Serve the static files
+CMD ["serve", "-s", "dist", "-l", "8080"]
