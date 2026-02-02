@@ -1,0 +1,10 @@
+{
+  "name": "Sai IDE",
+  "description": "Sai is a multimodal, AI-native cloud IDE designed to unify coding, cloud deployment, security, and collaboration. It allows developers to generate infrastructure, enforce policies, and deploy apps seamlessly across cloud providers using AI.",
+  "requestFramePermissions": [
+    "microphone",
+    "geolocation",
+    "camera",
+    "display-capture"
+  ]
+}
