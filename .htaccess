@@ -1,6 +1,7 @@
-# Disable directory listing
+# Disable directory indexes and default file serving
 Options -Indexes
+DirectoryIndex disabled
 
-# Pass all requests to Node.js app
-# This tells Apache to let the Node.js server handle all requests
-RewriteEngine Off
+# Force all requests to Node.js - don't serve any static files from Apache
+RewriteEngine On
+RewriteRule ^(.*)$ http://127.0.0.1:%{ENV:PORT}/$1 [P,L]
