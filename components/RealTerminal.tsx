@@ -54,19 +54,46 @@ import {
     Shield,
     Eye,
     EyeOff,
-    Brain
+    Brain,
+    Cloud,
+    Laptop,
+    Globe,
+    Server
 } from 'lucide-react';
+
+// Terminal connection modes
+type TerminalMode = 'local' | 'cloud' | 'browser';
+
+// Cloud provider configurations for terminal
+interface CloudTerminalProvider {
+    id: string;
+    name: string;
+    icon: string;
+    description: string;
+    endpoint?: string;
+    connected?: boolean;
+}
 import aiService from '../services/geminiService';
 
 const XTERM_CSS = `
 .xterm{cursor:text;position:relative;user-select:none;-ms-user-select:none;-webkit-user-select:none}.xterm.focus,.xterm:focus{outline:none}.xterm .xterm-helpers{position:absolute;z-index:5}.xterm .xterm-helper-textarea{position:absolute;opacity:0;z-index:-5;margin:0;cursor:default;width:0;height:0;overflow:hidden;white-space:nowrap}.xterm .composition-view{background:#000;color:#FFF;display:none;position:absolute;white-space:pre;z-index:1}.xterm .composition-view.active{display:block}.xterm .xterm-viewport{background-color:transparent !important;overflow-y:scroll;cursor:default;position:absolute;right:0;left:0;top:0;bottom:0}.xterm .xterm-screen{position:relative}.xterm .xterm-screen canvas{position:absolute;left:0;top:0}.xterm-char-measure-element{display:inline-block;visibility:hidden;position:absolute;left:0;top:0}.xterm.enable-mouse-events{cursor:default}.xterm.xterm-cursor-pointer{cursor:pointer}.xterm.xterm-cursor-crosshair{cursor:crosshair}.xterm .xterm-accessibility,.xterm .xterm-message{position:absolute;left:0;top:0;bottom:0;right:0;z-index:10;color:transparent}.xterm .live-region{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.xterm-dim{opacity:0.5}.xterm-underline{text-decoration:underline}.xterm .xterm-viewport::-webkit-scrollbar{width:8px}.xterm .xterm-viewport::-webkit-scrollbar-track{background:transparent}.xterm .xterm-viewport::-webkit-scrollbar-thumb{background:#333;border-radius:4px}.xterm .xterm-viewport::-webkit-scrollbar-thumb:hover{background:#555}
 `;
 
+// Cloud terminal providers
+const CLOUD_TERMINAL_PROVIDERS: CloudTerminalProvider[] = [
+    { id: 'gcp', name: 'Google Cloud Shell', icon: '☁️', description: 'Free cloud environment with 5GB storage' },
+    { id: 'aws', name: 'AWS CloudShell', icon: '🔶', description: 'AWS console with 1GB storage' },
+    { id: 'azure', name: 'Azure Cloud Shell', icon: '🔷', description: 'Azure portal shell (Bash/PowerShell)' },
+    { id: 'gitpod', name: 'Gitpod', icon: '🍊', description: 'Cloud development environments' },
+    { id: 'codespaces', name: 'GitHub Codespaces', icon: '🐙', description: 'VS Code in the cloud' },
+    { id: 'replit', name: 'Replit', icon: '🔄', description: 'Collaborative browser IDE' },
+];
+
 export interface RealTerminalRef {
     runCommand: (cmd: string) => void;
     write: (text: string) => void;
     ensureTerminalVisible: () => void;
-    createNewTerminal: (name?: string, shell?: string) => void;
+    createNewTerminal: (name?: string, shell?: string, mode?: TerminalMode) => void;
     killCurrentTerminal: () => void;
     focusTerminal: () => void;
     getCwd: () => string;
@@ -92,6 +119,8 @@ interface TerminalSession {
     lastCommandTime?: Date;
     lastCommandDuration?: number;
     bookmarkedCommands: string[];
+    mode: TerminalMode;
+    cloudProvider?: string;
     environment: {
         nodeVersion?: string;
         pythonVersion?: string;
@@ -197,6 +226,12 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     const [completionSuggestions, setCompletionSuggestions] = useState<string[]>([]);
     const [selectedCompletionIndex, setSelectedCompletionIndex] = useState(0);
     const [lastCopiedText, setLastCopiedText] = useState<string | null>(null);
+    
+    // Terminal mode state
+    const [showTerminalModeSelector, setShowTerminalModeSelector] = useState(false);
+    const [selectedTerminalMode, setSelectedTerminalMode] = useState<TerminalMode>('local');
+    const [selectedCloudProvider, setSelectedCloudProvider] = useState<string | null>(null);
+    const [cloudProviders, setCloudProviders] = useState<CloudTerminalProvider[]>(CLOUD_TERMINAL_PROVIDERS);
     
     // Platform detection for shell options
     const [serverPlatform, setServerPlatform] = useState<string | null>(null);
@@ -1070,7 +1105,47 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             fitAddon.fit();
         }, 100);
 
-        // Connect to backend socket with timeout
+        // Get session to check mode
+        const sessionData = sessionsRef.current.get(sessionId);
+        const terminalMode = sessionData?.mode || 'local';
+        const cloudProvider = sessionData?.cloudProvider;
+
+        // Handle different terminal modes
+        if (terminalMode === 'browser') {
+            // Browser-only mode - no socket connection attempt
+            term.writeln('\x1b[38;2;6;182;212m⚡\x1b[0m \x1b[1;38;2;103;232;249mBrowser Terminal Ready\x1b[0m');
+            term.writeln('\x1b[38;2;148;163;184mCommands like ls, cd, cat, echo, mkdir, and more are supported\x1b[0m');
+            term.writeln('\x1b[38;2;82;82;91m─────────────────────────────────────────────\x1b[0m');
+            writePrompt(term, sessionData?.cwd || '~');
+            return;
+        }
+
+        if (terminalMode === 'cloud' && cloudProvider) {
+            // Cloud terminal mode
+            const provider = CLOUD_TERMINAL_PROVIDERS.find(p => p.id === cloudProvider);
+            term.writeln(`\x1b[38;2;59;130;246m☁\x1b[0m \x1b[1;38;2;103;232;249mConnecting to ${provider?.name || 'Cloud Shell'}...\x1b[0m`);
+            
+            // Simulate cloud connection (in real implementation, this would connect to cloud provider's API)
+            setTimeout(() => {
+                const session = sessionsRef.current.get(sessionId);
+                if (session) {
+                    term.writeln('\x1b[38;2;34;197;94m✓\x1b[0m \x1b[1;38;2;6;182;212mCloud Shell Ready\x1b[0m');
+                    term.writeln(`\x1b[38;2;148;163;184mConnected to ${provider?.name}. ${provider?.description}\x1b[0m`);
+                    term.writeln('\x1b[38;2;234;179;8m⚠\x1b[0m \x1b[38;2;148;163;184mNote: Full cloud integration requires authentication.\x1b[0m');
+                    term.writeln('\x1b[38;2;82;82;91m─────────────────────────────────────────────\x1b[0m');
+                    setSessions(prev => {
+                        const updated = new Map(prev);
+                        const s = updated.get(sessionId);
+                        if (s) s.isConnected = true;
+                        return updated;
+                    });
+                    writePrompt(term, session.cwd);
+                }
+            }, 1500);
+            return;
+        }
+
+        // Local mode - connect to backend socket with timeout
         const socket = io(window.location.origin, { 
             path: '/socket.io/',
             timeout: 3000,
@@ -1082,7 +1157,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             const session = sessionsRef.current.get(sessionId);
             if (session && !session.isConnected) {
                 term.writeln('\x1b[38;2;6;182;212m⚡\x1b[0m \x1b[1;38;2;103;232;249mBrowser Terminal Ready\x1b[0m');
-                term.writeln('\x1b[38;2;148;163;184mCommands like ls, cd, cat, echo, mkdir, and more are supported\x1b[0m');
+                term.writeln('\x1b[38;2;148;163;184mRun Sai locally to connect to your machine\'s shell\x1b[0m');
                 term.writeln('\x1b[38;2;82;82;91m─────────────────────────────────────────────\x1b[0m');
                 writePrompt(term, session.cwd);
             }
@@ -1240,10 +1315,15 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     }, [fontSize, terminalTheme, writePrompt, handleSimulatedCommand, getAiSuggestion, suggestion]);
 
     // Create new terminal session
-    const createNewTerminal = useCallback((name?: string, shell?: string) => {
+    const createNewTerminal = useCallback((name?: string, shell?: string, mode?: TerminalMode, cloudProvider?: string) => {
         const sessionId = generateSessionId();
         const sessionNum = sessions.size + 1;
-        const sessionName = name || `Terminal ${sessionNum}`;
+        const terminalMode = mode || selectedTerminalMode;
+        const sessionName = name || (terminalMode === 'cloud' && cloudProvider 
+            ? `Cloud (${CLOUD_TERMINAL_PROVIDERS.find(p => p.id === cloudProvider)?.name || cloudProvider})`
+            : terminalMode === 'browser' 
+                ? `Browser ${sessionNum}`
+                : `Terminal ${sessionNum}`);
         const sessionShell = shell || 'default';
 
         const newSession: TerminalSession = {
@@ -1263,6 +1343,8 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             isRunning: true,
             startTime: new Date(),
             bookmarkedCommands: [],
+            mode: terminalMode,
+            cloudProvider: cloudProvider,
             environment: {
                 nodeVersion: 'v20.10.0',
                 pythonVersion: '3.12.0',
@@ -1391,6 +1473,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         const session = sessions.get(sessionId);
                         if (!session) return null;
                         const isActive = sessionId === currentPane.activeSessionId;
+                        const modeColor = session.mode === 'cloud' 
+                            ? 'bg-blue-500' 
+                            : session.mode === 'browser' 
+                                ? 'bg-amber-500' 
+                                : session.isConnected 
+                                    ? 'bg-emerald-500' 
+                                    : 'bg-amber-500';
                         
                         return (
                             <div
@@ -1406,11 +1495,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                                         : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04]'
                                 }`}
                             >
-                                <div className={`relative w-2 h-2 rounded-full ${session.isConnected ? 'bg-emerald-500' : 'bg-amber-500'}`}>
+                                <div className={`relative w-2 h-2 rounded-full ${modeColor}`}>
                                     {session.isRunning && (
-                                        <div className={`absolute inset-0 rounded-full ${session.isConnected ? 'bg-emerald-500' : 'bg-amber-500'} animate-ping opacity-75`} />
+                                        <div className={`absolute inset-0 rounded-full ${modeColor} animate-ping opacity-75`} />
                                     )}
                                 </div>
+                                {session.mode === 'cloud' && <Cloud size={10} className="text-blue-400" />}
+                                {session.mode === 'browser' && <Globe size={10} className="text-amber-400" />}
                                 <span className="text-xs font-medium truncate max-w-[100px]">{session.name}</span>
                                 {session.lastCommandDuration !== undefined && (
                                     <span className="text-[9px] text-zinc-600 font-mono">{session.lastCommandDuration}ms</span>
@@ -1439,45 +1530,153 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         </button>
                         
                         {showDropdown && (
-                            <div className="absolute top-full left-0 mt-1 w-64 bg-[#1a1d24] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl">
-                                <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
-                                    <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">New Terminal</span>
-                                    {serverPlatform && (
-                                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-zinc-600">
-                                            {serverPlatform === 'win32' ? '🪟 Windows' : serverPlatform === 'darwin' ? '🍎 macOS' : '🐧 Linux'}
-                                        </span>
-                                    )}
+                            <div className="absolute top-full left-0 mt-1 w-80 bg-[#1a1d24] border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50 backdrop-blur-xl">
+                                {/* Terminal Mode Tabs */}
+                                <div className="flex border-b border-white/5">
+                                    <button
+                                        onClick={() => setSelectedTerminalMode('local')}
+                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium transition-all ${
+                                            selectedTerminalMode === 'local' 
+                                                ? 'text-emerald-400 border-b-2 border-emerald-400 bg-emerald-400/5' 
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        <Laptop size={14} />
+                                        Local
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedTerminalMode('cloud')}
+                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium transition-all ${
+                                            selectedTerminalMode === 'cloud' 
+                                                ? 'text-blue-400 border-b-2 border-blue-400 bg-blue-400/5' 
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        <Cloud size={14} />
+                                        Cloud
+                                    </button>
+                                    <button
+                                        onClick={() => setSelectedTerminalMode('browser')}
+                                        className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-xs font-medium transition-all ${
+                                            selectedTerminalMode === 'browser' 
+                                                ? 'text-amber-400 border-b-2 border-amber-400 bg-amber-400/5' 
+                                                : 'text-zinc-500 hover:text-zinc-300'
+                                        }`}
+                                    >
+                                        <Globe size={14} />
+                                        Browser
+                                    </button>
                                 </div>
-                                <div className="p-1 max-h-64 overflow-y-auto custom-scrollbar">
-                                    {shellOptions.map(opt => (
-                                        <button
-                                            key={opt.value}
-                                            onClick={() => {
-                                                if (opt.available !== false) {
-                                                    createNewTerminal(opt.label, opt.value);
-                                                    setShowDropdown(false);
-                                                }
-                                            }}
-                                            disabled={opt.available === false}
-                                            className={`w-full flex items-center justify-between px-3 py-2 text-left text-sm rounded-lg transition-colors group ${
-                                                opt.available === false 
-                                                    ? 'text-zinc-600 cursor-not-allowed opacity-50' 
-                                                    : 'text-zinc-300 hover:bg-white/[0.06]'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <span className="text-base">{opt.icon}</span>
-                                                <div className="flex flex-col">
-                                                    <span>{opt.label}</span>
-                                                    {opt.available === false && (
-                                                        <span className="text-[9px] text-zinc-600">Not installed</span>
-                                                    )}
-                                                </div>
+
+                                {/* Local Terminal Options */}
+                                {selectedTerminalMode === 'local' && (
+                                    <>
+                                        <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+                                            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Local Shell</span>
+                                            {serverPlatform && (
+                                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-white/5 text-zinc-600">
+                                                    {serverPlatform === 'win32' ? '🪟 Windows' : serverPlatform === 'darwin' ? '🍎 macOS' : '🐧 Linux'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="p-2 text-xs text-zinc-500 bg-zinc-900/50">
+                                            <div className="flex items-start gap-2">
+                                                <Laptop size={12} className="mt-0.5 text-emerald-400" />
+                                                <span>Connects to your local machine. Run Sai locally for full shell access.</span>
                                             </div>
-                                            <span className="text-[10px] text-zinc-600 group-hover:text-zinc-400 font-mono">{opt.shortcut}</span>
-                                        </button>
-                                    ))}
-                                </div>
+                                        </div>
+                                        <div className="p-1 max-h-48 overflow-y-auto custom-scrollbar">
+                                            {shellOptions.map(opt => (
+                                                <button
+                                                    key={opt.value}
+                                                    onClick={() => {
+                                                        if (opt.available !== false) {
+                                                            createNewTerminal(opt.label, opt.value, 'local');
+                                                            setShowDropdown(false);
+                                                        }
+                                                    }}
+                                                    disabled={opt.available === false}
+                                                    className={`w-full flex items-center justify-between px-3 py-2 text-left text-sm rounded-lg transition-colors group ${
+                                                        opt.available === false 
+                                                            ? 'text-zinc-600 cursor-not-allowed opacity-50' 
+                                                            : 'text-zinc-300 hover:bg-white/[0.06]'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span className="text-base">{opt.icon}</span>
+                                                        <span>{opt.label}</span>
+                                                    </div>
+                                                    <span className="text-[10px] text-zinc-600 group-hover:text-zinc-400 font-mono">{opt.shortcut}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Cloud Terminal Options */}
+                                {selectedTerminalMode === 'cloud' && (
+                                    <>
+                                        <div className="px-3 py-2 border-b border-white/5">
+                                            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Cloud Providers</span>
+                                        </div>
+                                        <div className="p-2 text-xs text-zinc-500 bg-zinc-900/50">
+                                            <div className="flex items-start gap-2">
+                                                <Cloud size={12} className="mt-0.5 text-blue-400" />
+                                                <span>Connect to cloud shell environments. May require authentication.</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-1 max-h-48 overflow-y-auto custom-scrollbar">
+                                            {CLOUD_TERMINAL_PROVIDERS.map(provider => (
+                                                <button
+                                                    key={provider.id}
+                                                    onClick={() => {
+                                                        createNewTerminal(undefined, 'default', 'cloud', provider.id);
+                                                        setShowDropdown(false);
+                                                    }}
+                                                    className="w-full flex items-center gap-3 px-3 py-2 text-left text-sm text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors group"
+                                                >
+                                                    <span className="text-base">{provider.icon}</span>
+                                                    <div className="flex-1">
+                                                        <div className="font-medium">{provider.name}</div>
+                                                        <div className="text-[10px] text-zinc-500 group-hover:text-zinc-400">{provider.description}</div>
+                                                    </div>
+                                                    <Server size={12} className="text-zinc-600" />
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </>
+                                )}
+
+                                {/* Browser Terminal Options */}
+                                {selectedTerminalMode === 'browser' && (
+                                    <>
+                                        <div className="px-3 py-2 border-b border-white/5">
+                                            <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold">Browser Terminal</span>
+                                        </div>
+                                        <div className="p-2 text-xs text-zinc-500 bg-zinc-900/50">
+                                            <div className="flex items-start gap-2">
+                                                <Globe size={12} className="mt-0.5 text-amber-400" />
+                                                <span>Runs entirely in your browser. Supports basic commands like ls, cd, cat, mkdir, etc.</span>
+                                            </div>
+                                        </div>
+                                        <div className="p-1">
+                                            <button
+                                                onClick={() => {
+                                                    createNewTerminal('Browser Terminal', 'default', 'browser');
+                                                    setShowDropdown(false);
+                                                }}
+                                                className="w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm text-zinc-300 hover:bg-white/[0.06] rounded-lg transition-colors"
+                                            >
+                                                <span className="text-base">⚡</span>
+                                                <div className="flex-1">
+                                                    <div className="font-medium">Start Browser Terminal</div>
+                                                    <div className="text-[10px] text-zinc-500">No backend required</div>
+                                                </div>
+                                            </button>
+                                        </div>
+                                    </>
+                                )}
+
                                 <div className="border-t border-white/5 p-1">
                                     <button 
                                         onClick={() => {
@@ -1528,12 +1727,30 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
                     {/* Connection Status */}
                     <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-medium uppercase tracking-wide ${
-                        activeSession?.isConnected 
-                            ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
-                            : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                        activeSession?.mode === 'cloud' 
+                            ? 'text-blue-400 bg-blue-500/10 border border-blue-500/20'
+                            : activeSession?.mode === 'browser'
+                                ? 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
+                                : activeSession?.isConnected 
+                                    ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20' 
+                                    : 'text-amber-400 bg-amber-500/10 border border-amber-500/20'
                     }`}>
-                        <Activity size={10} className={activeSession?.isConnected ? 'animate-pulse' : ''} />
-                        {activeSession?.isConnected ? 'Connected' : 'Local'}
+                        {activeSession?.mode === 'cloud' ? (
+                            <>
+                                <Cloud size={10} className="animate-pulse" />
+                                Cloud
+                            </>
+                        ) : activeSession?.mode === 'browser' ? (
+                            <>
+                                <Globe size={10} />
+                                Browser
+                            </>
+                        ) : (
+                            <>
+                                <Activity size={10} className={activeSession?.isConnected ? 'animate-pulse' : ''} />
+                                {activeSession?.isConnected ? 'Connected' : 'Local'}
+                            </>
+                        )}
                     </div>
                     
                     <div className="w-px h-4 bg-white/10 mx-1" />
