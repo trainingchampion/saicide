@@ -12,14 +12,21 @@ app.get('/debug', (req, res) => {
   const indexContent = fs.existsSync(path.join(distPath, 'index.html')) 
     ? fs.readFileSync(path.join(distPath, 'index.html'), 'utf8').substring(0, 500)
     : 'NOT FOUND';
+  const rootIndexExists = fs.existsSync(path.join(__dirname, 'index.html'));
   const info = {
     distPath: distPath,
     distExists: fs.existsSync(distPath),
     distFiles: fs.existsSync(distPath) ? fs.readdirSync(distPath) : [],
-    rootFiles: fs.readdirSync(__dirname).slice(0, 15),
+    rootFiles: fs.readdirSync(__dirname).slice(0, 20),
+    rootIndexHtmlExists: rootIndexExists,
     indexHtmlPreview: indexContent
   };
   res.json(info);
+});
+
+// Test endpoint - explicitly serve dist/index.html
+app.get('/test', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
 });
 
 // Health check
