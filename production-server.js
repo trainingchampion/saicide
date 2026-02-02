@@ -7,6 +7,17 @@ const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
 
+// Rename root index.html to prevent Apache from serving it
+const rootIndexPath = path.join(__dirname, 'index.html');
+if (fs.existsSync(rootIndexPath)) {
+  try {
+    fs.renameSync(rootIndexPath, path.join(__dirname, '_index.dev.html'));
+    console.log('Renamed root index.html to _index.dev.html');
+  } catch (e) {
+    console.log('Could not rename root index.html:', e.message);
+  }
+}
+
 // Log startup info
 console.log('Starting server...');
 console.log('PORT:', PORT);
