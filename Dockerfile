@@ -15,20 +15,21 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage - simple Node.js static server
+# Production stage
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Install serve globally
-RUN npm install -g serve
+# Install only express for the server
+RUN npm install express
 
-# Copy built assets from builder stage
+# Copy built assets and server
 COPY --from=builder /app/dist ./dist
+COPY server.js ./
 
-# Cloud Run uses port 8080
+# Cloud Run uses PORT env variable
 ENV PORT=8080
 EXPOSE 8080
 
-# Serve the static files
-CMD ["serve", "-s", "dist", "-l", "8080"]
+# Start the server
+CMD ["node", "server.js"]
