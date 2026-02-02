@@ -32,8 +32,14 @@ app.get('/test', (req, res) => {
 // Health check
 app.get('/health', (req, res) => res.send('OK'));
 
-// Serve static files from dist
-app.use(express.static(distPath));
+// IMPORTANT: Handle root path BEFORE static middleware
+// This prevents Apache/root index.html from being served
+app.get('/', (req, res) => {
+  res.sendFile(path.join(distPath, 'index.html'));
+});
+
+// Serve static files from dist ONLY (not root)
+app.use('/assets', express.static(path.join(distPath, 'assets')));
 
 // SPA fallback
 app.get('*', (req, res) => {
