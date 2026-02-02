@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,6 +10,23 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
+
+// Check if dist folder exists
+if (!fs.existsSync(distPath)) {
+  console.error('ERROR: dist folder does not exist. Run "npm run build" first.');
+  console.error('Looking for:', distPath);
+  process.exit(1);
+}
+
+// Check if index.html exists in dist
+const indexPath = path.join(distPath, 'index.html');
+if (!fs.existsSync(indexPath)) {
+  console.error('ERROR: dist/index.html does not exist.');
+  process.exit(1);
+}
+
+console.log('Serving static files from:', distPath);
+console.log('Index file:', indexPath);
 
 // MIME types for proper static file serving
 const mimeTypes = {
