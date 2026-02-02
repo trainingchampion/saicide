@@ -1,10 +1,22 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
+
+// Debug endpoint
+app.get('/debug', (req, res) => {
+  const info = {
+    distPath: distPath,
+    distExists: fs.existsSync(distPath),
+    distFiles: fs.existsSync(distPath) ? fs.readdirSync(distPath) : [],
+    rootFiles: fs.readdirSync(__dirname).slice(0, 15)
+  };
+  res.json(info);
+});
 
 // Health check
 app.get('/health', (req, res) => res.send('OK'));
