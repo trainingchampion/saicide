@@ -1070,10 +1070,26 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             fitAddon.fit();
         }, 100);
 
-        // Connect to backend socket
-        const socket = io(window.location.origin, { path: '/socket.io/' });
+        // Connect to backend socket with timeout
+        const socket = io(window.location.origin, { 
+            path: '/socket.io/',
+            timeout: 3000,
+            reconnectionAttempts: 2
+        });
+
+        // If connection doesn't happen in 3 seconds, show simulated mode message
+        const connectionTimeout = setTimeout(() => {
+            const session = sessionsRef.current.get(sessionId);
+            if (session && !session.isConnected) {
+                term.writeln('\x1b[38;2;6;182;212m⚡\x1b[0m \x1b[1;38;2;103;232;249mBrowser Terminal Ready\x1b[0m');
+                term.writeln('\x1b[38;2;148;163;184mRunning in simulated mode - common commands like ls, cd, cat, echo are supported\x1b[0m');
+                term.writeln('\x1b[38;2;82;82;91m─────────────────────────────────────────────\x1b[0m');
+                writePrompt(term, session.cwd);
+            }
+        }, 2000);
 
         socket.on('connect', () => {
+            clearTimeout(connectionTimeout);
             setSessions(prev => {
                 const updated = new Map(prev);
                 const s = updated.get(sessionId);
