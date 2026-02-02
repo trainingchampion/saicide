@@ -28,6 +28,16 @@ if (!fs.existsSync(indexPath)) {
 console.log('Serving static files from:', distPath);
 console.log('Index file:', indexPath);
 
+// Block any requests to development files (prevent serving root index.html)
+app.use((req, res, next) => {
+  const blockedPaths = ['/index.tsx', '/index.ts', '/src/', '/components/', '/services/', '/modules/'];
+  if (blockedPaths.some(blocked => req.path.startsWith(blocked))) {
+    console.log('Blocked development file request:', req.path);
+    return res.status(404).send('Not found');
+  }
+  next();
+});
+
 // MIME types for proper static file serving
 const mimeTypes = {
   '.html': 'text/html',
