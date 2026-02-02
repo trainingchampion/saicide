@@ -15,14 +15,11 @@ COPY . .
 # Build the application
 RUN npm run build
 
-# Production stage
-FROM nginx:alpine
-
-# Remove default nginx configs that might conflict
-RUN rm -rf /etc/nginx/conf.d/* && rm -f /etc/nginx/nginx.conf
+# Production stage - use unprivileged nginx for Cloud Run
+FROM nginxinc/nginx-unprivileged:alpine
 
 # Copy custom nginx config
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
@@ -30,5 +27,5 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Cloud Run uses port 8080
 EXPOSE 8080
 
-# Start nginx
+# Start nginx (runs as non-root user)
 CMD ["nginx", "-g", "daemon off;"]
