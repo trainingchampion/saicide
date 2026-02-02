@@ -13,10 +13,29 @@ const distPath = path.join(__dirname, 'dist');
 
 // Check if dist folder exists
 if (!fs.existsSync(distPath)) {
-  console.error('ERROR: dist folder does not exist. Run "npm run build" first.');
+  console.error('WARNING: dist folder does not exist. Serving placeholder...');
   console.error('Looking for:', distPath);
-  process.exit(1);
-}
+  console.error('Current directory contents:', fs.readdirSync(__dirname));
+  
+  // Start a minimal server that shows the error
+  app.get('*', (req, res) => {
+    res.status(503).send(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Build Required</title></head>
+        <body style="font-family: sans-serif; padding: 40px;">
+          <h1>Build Not Found</h1>
+          <p>The dist/ folder doesn't exist. Run <code>npm run build</code> first.</p>
+          <p>Looking for: ${distPath}</p>
+        </body>
+      </html>
+    `);
+  });
+  
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT} (BUILD MISSING)`);
+  });
+} else {
 
 // Check if index.html exists in dist
 const indexPath = path.join(distPath, 'index.html');
@@ -86,3 +105,5 @@ app.get('*', (req, res) => {
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
+
+} // end of else block for dist exists check
