@@ -876,11 +876,11 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 term.write(`\r\n\x1b[38;2;34;197;94m✓\x1b[0m Deleted: ${target}\r\n`);
             }
         } else if (action === 'copy') {
-            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m File copy is simulated in browser mode.\r\n`);
+            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m File copy is not available in browser mode.\r\n`);
         } else if (action === 'move' || action === 'mv') {
-            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m File move is simulated in browser mode.\r\n`);
+            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m File move is not available in browser mode.\r\n`);
         } else if (action === 'ren' || action === 'rename') {
-            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m Rename is simulated in browser mode.\r\n`);
+            term.write(`\r\n\x1b[38;2;234;179;8m⚠\x1b[0m Rename is not available in browser mode.\r\n`);
         } else if (action === 'ver') {
             // Windows version command
             term.write('\r\n\x1b[38;2;148;163;184mSai IDE Terminal v3.0 [Browser Mode]\x1b[0m\r\n');
@@ -1077,12 +1077,12 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             reconnectionAttempts: 2
         });
 
-        // If connection doesn't happen in 3 seconds, show simulated mode message
+        // If connection doesn't happen in 3 seconds, show browser terminal message
         const connectionTimeout = setTimeout(() => {
             const session = sessionsRef.current.get(sessionId);
             if (session && !session.isConnected) {
                 term.writeln('\x1b[38;2;6;182;212m⚡\x1b[0m \x1b[1;38;2;103;232;249mBrowser Terminal Ready\x1b[0m');
-                term.writeln('\x1b[38;2;148;163;184mRunning in simulated mode - common commands like ls, cd, cat, echo are supported\x1b[0m');
+                term.writeln('\x1b[38;2;148;163;184mCommands like ls, cd, cat, echo, mkdir, and more are supported\x1b[0m');
                 term.writeln('\x1b[38;2;82;82;91m─────────────────────────────────────────────\x1b[0m');
                 writePrompt(term, session.cwd);
             }
