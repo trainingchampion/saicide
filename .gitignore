@@ -22,7 +22,3 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
-# Root index.html conflicts with dist/index.html on Hostinger
-# Keep it only for local Vite dev server
-/index.html
