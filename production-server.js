@@ -7,16 +7,14 @@ const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
 
-// Delete root index.html on startup to prevent Apache from serving it
-const rootIndexPath = path.join(__dirname, 'index.html');
-if (fs.existsSync(rootIndexPath)) {
-  try {
-    fs.unlinkSync(rootIndexPath);
-    console.log('Deleted root index.html to prevent conflicts');
-  } catch (e) {
-    console.log('Could not delete root index.html:', e.message);
-  }
-}
+// Log startup info
+console.log('Starting server...');
+console.log('PORT:', PORT);
+console.log('distPath:', distPath);
+console.log('dist exists:', fs.existsSync(distPath));
+
+// Health check - place first so it always works
+app.get('/health', (req, res) => res.send('OK'));
 
 // Debug endpoint
 app.get('/debug', (req, res) => {
