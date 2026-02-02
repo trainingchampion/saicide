@@ -12,8 +12,8 @@ app.get('/health', (req, res) => {
   res.status(200).send('OK');
 });
 
-// SPA fallback - serve index.html for all routes
-app.get('*', (req, res) => {
+// SPA fallback - serve index.html for all routes (Express 5.x syntax)
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
 
