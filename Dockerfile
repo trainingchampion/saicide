@@ -18,11 +18,11 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
-# Remove default nginx config
-RUN rm /etc/nginx/conf.d/default.conf
+# Remove default nginx configs that might conflict
+RUN rm -rf /etc/nginx/conf.d/* && rm -f /etc/nginx/nginx.conf
 
 # Copy custom nginx config
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/nginx.conf
 
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
