@@ -1,16 +1,17 @@
-import express from 'express';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import fs from 'fs';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
 const indexPath = path.join(distPath, 'index.html');
+
+console.log('Starting server...');
+console.log('Node version:', process.version);
+console.log('__dirname:', __dirname);
+console.log('distPath:', distPath);
 
 // Debug info endpoint - always available
 app.get('/debug', (req, res) => {
@@ -40,6 +41,7 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexPath)) {
   console.error('WARNING: dist folder or index.html does not exist');
   console.error('distPath:', distPath, 'exists:', fs.existsSync(distPath));
   console.error('indexPath:', indexPath, 'exists:', fs.existsSync(indexPath));
+  console.error('Files in __dirname:', fs.readdirSync(__dirname));
   
   app.get('*', (req, res) => {
     res.status(503).send(`
@@ -54,17 +56,10 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexPath)) {
     `);
   });
 } else {
-  console.log('Serving static files from:', distPath);
+  console.log('dist folder found, serving static files...');
 
   // Serve static files from dist
-  app.use(express.static(distPath, {
-    setHeaders: (res, filePath) => {
-      const ext = path.extname(filePath).toLowerCase();
-      if (ext === '.js' || ext === '.mjs') {
-        res.setHeader('Content-Type', 'application/javascript');
-      }
-    }
-  }));
+  app.use(express.static(distPath));
 
   // SPA fallback - serve index.html for all other routes
   app.get('*', (req, res) => {
@@ -73,5 +68,5 @@ if (!fs.existsSync(distPath) || !fs.existsSync(indexPath)) {
 }
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
 });
