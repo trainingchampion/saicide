@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { ICONS, EXTERNAL_AGENTS, LLM_PROVIDERS } from '../constants';
 import { THEMES } from '../themes';
-import { Check, Plus, ChevronDown, ChevronRight, Bot, Server, Zap, ShoppingBag, Key, Save, X, Trash2, Power, BrainCircuit, Code2, CreditCard, Star, Info } from 'lucide-react';
+import { Check, Plus, ChevronDown, ChevronRight, Bot, Server, Zap, ShoppingBag, Key, Save, X, Trash2, Power, BrainCircuit, Code2, CreditCard, Star, Info, Gift, Clock, Sparkles } from 'lucide-react';
 import { ExternalAgent, MCPServer, LLMProviderConfig, DesignName } from '../types';
+import authService from '../services/authService';
 
 interface SettingsPaneProps {
   onCollapse: () => void;
@@ -65,6 +66,29 @@ const SettingsPane: React.FC<SettingsPaneProps> = ({
   
   // Local input state for keys
   const [editingKey, setEditingKey] = useState('');
+
+  // Voucher state
+  const [voucherCode, setVoucherCode] = useState('');
+  const [voucherLoading, setVoucherLoading] = useState(false);
+  const [voucherMessage, setVoucherMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [trialRemaining, setTrialRemaining] = useState(authService.formatTrialTimeRemaining());
+  const hasTrialActive = authService.hasActiveTrial();
+
+  // Check trial expiry on mount
+  useEffect(() => {
+    authService.checkTrialExpiry();
+  }, []);
+
+  // Update trial countdown
+  useEffect(() => {
+    if (!hasTrialActive) return;
+    
+    const interval = setInterval(() => {
+      setTrialRemaining(authService.formatTrialTimeRemaining());
+    }, 60000); // Update every minute
+    
+    return () => clearInterval(interval);
+  }, [hasTrialActive]);
 
   // Persist agents to localStorage
   useEffect(() => {
@@ -159,6 +183,85 @@ const SettingsPane: React.FC<SettingsPaneProps> = ({
                     <Zap size={12} fill="currentColor" />
                     Manage Subscription
                 </button>
+            </div>
+
+            {/* Active Trial Banner */}
+            {hasTrialActive && (
+                <div className="p-3 bg-gradient-to-br from-emerald-600/20 to-transparent border border-emerald-500/30 rounded-xl">
+                    <div className="flex items-center gap-2 mb-1">
+                        <Sparkles size={14} className="text-emerald-400" />
+                        <span className="text-xs font-bold text-emerald-400 uppercase tracking-wide">Pro Trial Active</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[11px] text-gray-300">
+                        <Clock size={12} className="text-gray-500" />
+                        <span>{trialRemaining}</span>
+                    </div>
+                </div>
+            )}
+
+            {/* Redeem Voucher */}
+            <div className="p-4 bg-gradient-to-br from-purple-600/10 to-transparent border border-purple-500/20 rounded-2xl">
+                <div className="flex items-center gap-2 mb-3">
+                    <Gift size={14} className="text-purple-400" />
+                    <span className="text-xs font-bold text-purple-400 uppercase tracking-wide">Redeem Voucher</span>
+                </div>
+                <p className="text-[10px] text-gray-400 mb-3">Have a voucher code? Enter it below to unlock a free trial.</p>
+                <div className="flex gap-2">
+                    <input
+                        type="text"
+                        value={voucherCode}
+                        onChange={(e) => {
+                            setVoucherCode(e.target.value.toUpperCase());
+                            setVoucherMessage(null);
+                        }}
+                        placeholder="Enter voucher code"
+                        className="flex-1 px-3 py-2 bg-[var(--color-background-tertiary)] border border-[var(--color-border)] rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                    />
+                    <button
+                        onClick={async () => {
+                            if (!voucherCode.trim()) return;
+                            setVoucherLoading(true);
+                            setVoucherMessage(null);
+                            try {
+                                const result = await authService.redeemVoucher(voucherCode);
+                                setVoucherMessage({
+                                    type: result.success ? 'success' : 'error',
+                                    text: result.message,
+                                });
+                                if (result.success) {
+                                    setVoucherCode('');
+                                    setTrialRemaining(authService.formatTrialTimeRemaining());
+                                    // Reload to reflect new plan
+                                    setTimeout(() => window.location.reload(), 1500);
+                                }
+                            } catch (err: any) {
+                                setVoucherMessage({ type: 'error', text: err.message || 'Failed to redeem voucher.' });
+                            } finally {
+                                setVoucherLoading(false);
+                            }
+                        }}
+                        disabled={voucherLoading || !voucherCode.trim()}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white text-xs font-bold uppercase rounded-lg transition-colors flex items-center gap-1"
+                    >
+                        {voucherLoading ? (
+                            <span className="animate-spin">⏳</span>
+                        ) : (
+                            <>
+                                <Gift size={12} />
+                                Redeem
+                            </>
+                        )}
+                    </button>
+                </div>
+                {voucherMessage && (
+                    <div className={`mt-2 text-[11px] px-2 py-1.5 rounded-lg ${
+                        voucherMessage.type === 'success' 
+                            ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                    }`}>
+                        {voucherMessage.text}
+                    </div>
+                )}
             </div>
         </section>
 

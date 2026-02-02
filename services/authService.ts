@@ -6,10 +6,22 @@ const USERS_KEY = 'sai_users';
 const SESSION_KEY = 'sai_session';
 const TOKEN_KEY = 'sai_auth_token';
 const REFRESH_TOKEN_KEY = 'sai_refresh_token';
+const VOUCHERS_KEY = 'sai_vouchers';
+const TRIAL_KEY = 'sai_trial';
 
 // Token expiry times (in milliseconds)
 const ACCESS_TOKEN_EXPIRY = 60 * 60 * 1000; // 1 hour
 const REFRESH_TOKEN_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 days
+const TRIAL_DURATION = 24 * 60 * 60 * 1000; // 1 day trial
+
+// Valid voucher codes for 1-day Pro trial
+const VALID_VOUCHERS: Record<string, { type: 'trial' | 'discount'; days?: number; discount?: number }> = {
+  'SAIPRO24': { type: 'trial', days: 1 },
+  'TRYSAI': { type: 'trial', days: 1 },
+  'FREETRIAL': { type: 'trial', days: 1 },
+  'WELCOME2025': { type: 'trial', days: 1 },
+  'DEVPRO': { type: 'trial', days: 1 },
+};
 
 // Permission definitions by plan
 export const PERMISSIONS = {
@@ -802,6 +814,204 @@ const isAuthenticated = (): boolean => {
   return true;
 };
 
+// ==================== Voucher/Trial System ====================
+
+interface TrialInfo {
+  userId: string;
+  startTime: number;
+  endTime: number;
+  voucherCode: string;
+  originalPlan: 'Hobby' | 'Pro' | 'Enterprise';
+}
+
+interface RedeemedVoucher {
+  code: string;
+  userId: string;
+  redeemedAt: number;
+}
+
+// Get redeemed vouchers from storage
+const getRedeemedVouchers = (): RedeemedVoucher[] => {
+  try {
+    const data = localStorage.getItem(VOUCHERS_KEY);
+    return data ? JSON.parse(data) : [];
+  } catch {
+    return [];
+  }
+};
+
+// Get active trial info
+const getTrialInfo = (): TrialInfo | null => {
+  try {
+    const data = localStorage.getItem(TRIAL_KEY);
+    return data ? JSON.parse(data) : null;
+  } catch {
+    return null;
+  }
+};
+
+// Check if user has an active trial
+const hasActiveTrial = (): boolean => {
+  const trial = getTrialInfo();
+  if (!trial) return false;
+  
+  const currentUser = getCurrentUser();
+  if (!currentUser || trial.userId !== currentUser.id) return false;
+  
+  return Date.now() < trial.endTime;
+};
+
+// Get remaining trial time in milliseconds
+const getTrialTimeRemaining = (): number => {
+  const trial = getTrialInfo();
+  if (!trial) return 0;
+  
+  const currentUser = getCurrentUser();
+  if (!currentUser || trial.userId !== currentUser.id) return 0;
+  
+  const remaining = trial.endTime - Date.now();
+  return remaining > 0 ? remaining : 0;
+};
+
+// Format remaining time as human-readable string
+const formatTrialTimeRemaining = (): string => {
+  const remaining = getTrialTimeRemaining();
+  if (remaining <= 0) return 'Expired';
+  
+  const hours = Math.floor(remaining / (60 * 60 * 1000));
+  const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+  
+  if (hours > 0) {
+    return `${hours}h ${minutes}m remaining`;
+  }
+  return `${minutes}m remaining`;
+};
+
+// Validate voucher code
+const validateVoucher = (code: string): { valid: boolean; error?: string; days?: number } => {
+  const normalizedCode = code.trim().toUpperCase();
+  
+  if (!normalizedCode) {
+    return { valid: false, error: 'Please enter a voucher code.' };
+  }
+  
+  const voucher = VALID_VOUCHERS[normalizedCode];
+  if (!voucher) {
+    return { valid: false, error: 'Invalid voucher code.' };
+  }
+  
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    return { valid: false, error: 'Please sign in to redeem a voucher.' };
+  }
+  
+  // Check if user already redeemed this voucher
+  const redeemed = getRedeemedVouchers();
+  const alreadyRedeemed = redeemed.some(
+    v => v.code === normalizedCode && v.userId === currentUser.id
+  );
+  
+  if (alreadyRedeemed) {
+    return { valid: false, error: 'You have already redeemed this voucher.' };
+  }
+  
+  // Check if user is already Pro or Enterprise
+  if (currentUser.plan === 'Pro' || currentUser.plan === 'Enterprise') {
+    // Check if it's an active trial
+    if (!hasActiveTrial()) {
+      return { valid: false, error: 'You already have an active subscription.' };
+    }
+  }
+  
+  return { valid: true, days: voucher.days || 1 };
+};
+
+// Redeem voucher code for trial
+const redeemVoucher = async (code: string): Promise<{ success: boolean; message: string; trialEndsAt?: Date }> => {
+  const validation = validateVoucher(code);
+  
+  if (!validation.valid) {
+    return { success: false, message: validation.error || 'Invalid voucher.' };
+  }
+  
+  const currentUser = getCurrentUser();
+  if (!currentUser) {
+    return { success: false, message: 'Please sign in to redeem a voucher.' };
+  }
+  
+  const normalizedCode = code.trim().toUpperCase();
+  const trialDays = validation.days || 1;
+  const trialDuration = trialDays * 24 * 60 * 60 * 1000;
+  
+  // Save trial info
+  const trialInfo: TrialInfo = {
+    userId: currentUser.id,
+    startTime: Date.now(),
+    endTime: Date.now() + trialDuration,
+    voucherCode: normalizedCode,
+    originalPlan: currentUser.plan as 'Hobby' | 'Pro' | 'Enterprise',
+  };
+  localStorage.setItem(TRIAL_KEY, JSON.stringify(trialInfo));
+  
+  // Mark voucher as redeemed
+  const redeemed = getRedeemedVouchers();
+  redeemed.push({
+    code: normalizedCode,
+    userId: currentUser.id,
+    redeemedAt: Date.now(),
+  });
+  localStorage.setItem(VOUCHERS_KEY, JSON.stringify(redeemed));
+  
+  // Upgrade user to Pro for trial period
+  const users = getStoredUsers();
+  const userIndex = users.findIndex(u => u.id === currentUser.id);
+  
+  if (userIndex !== -1) {
+    users[userIndex] = { ...users[userIndex], plan: 'Pro' };
+    setStoredUsers(users);
+    
+    // Update session
+    const sessionUser = { ...users[userIndex] };
+    delete sessionUser.password;
+    localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+  }
+  
+  return {
+    success: true,
+    message: `🎉 Success! You now have ${trialDays}-day Pro trial access.`,
+    trialEndsAt: new Date(trialInfo.endTime),
+  };
+};
+
+// Check and expire trial if needed (call on app load)
+const checkTrialExpiry = (): void => {
+  const trial = getTrialInfo();
+  if (!trial) return;
+  
+  const currentUser = getCurrentUser();
+  if (!currentUser || trial.userId !== currentUser.id) return;
+  
+  // Trial expired
+  if (Date.now() >= trial.endTime) {
+    // Revert to original plan
+    const users = getStoredUsers();
+    const userIndex = users.findIndex(u => u.id === currentUser.id);
+    
+    if (userIndex !== -1) {
+      users[userIndex] = { ...users[userIndex], plan: trial.originalPlan };
+      setStoredUsers(users);
+      
+      // Update session
+      const sessionUser = { ...users[userIndex] };
+      delete sessionUser.password;
+      localStorage.setItem(SESSION_KEY, JSON.stringify(sessionUser));
+    }
+    
+    // Clear trial info
+    localStorage.removeItem(TRIAL_KEY);
+  }
+};
+
 export default {
   signUp,
   signIn,
@@ -830,4 +1040,11 @@ export default {
   getAccessToken,
   isAuthenticated,
   PERMISSIONS,
+  // Voucher/Trial System
+  validateVoucher,
+  redeemVoucher,
+  hasActiveTrial,
+  getTrialTimeRemaining,
+  formatTrialTimeRemaining,
+  checkTrialExpiry,
 };
