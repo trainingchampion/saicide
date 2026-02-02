@@ -7,14 +7,22 @@ const PORT = process.env.PORT || 3000;
 
 const distPath = path.join(__dirname, 'dist');
 
-// Rename root index.html to prevent Apache from serving it
+// Remove or rename root index.html to prevent Apache from serving it
 const rootIndexPath = path.join(__dirname, 'index.html');
 if (fs.existsSync(rootIndexPath)) {
   try {
-    fs.renameSync(rootIndexPath, path.join(__dirname, '_index.dev.html'));
-    console.log('Renamed root index.html to _index.dev.html');
+    // Try to delete it first
+    fs.unlinkSync(rootIndexPath);
+    console.log('Deleted root index.html');
   } catch (e) {
-    console.log('Could not rename root index.html:', e.message);
+    console.log('Could not delete root index.html:', e.message);
+    // Try rename as fallback
+    try {
+      fs.renameSync(rootIndexPath, path.join(__dirname, '_index.dev.html'));
+      console.log('Renamed root index.html to _index.dev.html');
+    } catch (e2) {
+      console.log('Could not rename root index.html:', e2.message);
+    }
   }
 }
 
