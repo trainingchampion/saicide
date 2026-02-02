@@ -45,8 +45,9 @@ app.get('*', (req, res) => {
 
 module.exports = app;
 
-if (require.main === module) {
-  app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-  });
-}
+// Only start if run directly (not imported by app.js)
+// if (require.main === module) {
+//   app.listen(PORT, () => {
+//     console.log(`Server running on port ${PORT}`);
+//   });
+// }
