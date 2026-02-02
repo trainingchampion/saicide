@@ -18,15 +18,17 @@ RUN npm run build
 # Production stage
 FROM nginx:alpine
 
-# Copy custom nginx config template
-COPY nginx.conf /etc/nginx/templates/default.conf.template
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy custom nginx config
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy built assets from builder stage
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Cloud Run uses PORT env variable (default 8080)
-ENV PORT=8080
+# Cloud Run uses port 8080
 EXPOSE 8080
 
-# Start nginx with envsubst to replace $PORT in config
-CMD ["sh", "-c", "envsubst '$$PORT' < /etc/nginx/templates/default.conf.template > /etc/nginx/conf.d/default.conf && nginx -g 'daemon off;'"]
+# Start nginx
+CMD ["nginx", "-g", "daemon off;"]
