@@ -1,50 +1,24 @@
-// Postbuild script - prepare production deployment for Hostinger
-// Hostinger serves from root, so we need to move dist contents there
+// Postbuild script - prepare production deployment
+// NOTE: This script is for LOCAL builds only
+// For Hostinger, the built files are in dist/ folder - configure Hostinger to serve from there
+// OR set the "Publish directory" to "dist" in Hostinger settings
 const fs = require('fs');
 const path = require('path');
 
 const rootDir = path.join(__dirname, '..');
 const distPath = path.join(rootDir, 'dist');
 const distIndexPath = path.join(distPath, 'index.html');
-const rootIndexPath = path.join(rootDir, 'index.html');
-const rootAssetsPath = path.join(rootDir, 'assets');
-const distAssetsPath = path.join(distPath, 'assets');
-
-// Helper to copy directory recursively
-function copyDirSync(src, dest) {
-  if (!fs.existsSync(dest)) {
-    fs.mkdirSync(dest, { recursive: true });
-  }
-  const entries = fs.readdirSync(src, { withFileTypes: true });
-  for (const entry of entries) {
-    const srcPath = path.join(src, entry.name);
-    const destPath = path.join(dest, entry.name);
-    if (entry.isDirectory()) {
-      copyDirSync(srcPath, destPath);
-    } else {
-      fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
 
 // Check that dist/index.html exists (build was successful)
 if (fs.existsSync(distIndexPath)) {
   console.log('✓ Build completed successfully');
-  
-  // Copy dist/index.html to root (overwriting dev version)
-  fs.copyFileSync(distIndexPath, rootIndexPath);
-  console.log('  - Copied dist/index.html to root');
-  
-  // Copy assets folder to root
-  if (fs.existsSync(distAssetsPath)) {
-    if (fs.existsSync(rootAssetsPath)) {
-      fs.rmSync(rootAssetsPath, { recursive: true, force: true });
-    }
-    copyDirSync(distAssetsPath, rootAssetsPath);
-    console.log('  - Copied dist/assets/ to root/assets/');
-  }
-  
-  console.log('✓ Production files ready for Hostinger');
+  console.log('  - Built files are in dist/ folder');
+  console.log('');
+  console.log('For Hostinger deployment:');
+  console.log('  1. Set "Publish directory" to "dist" in Hostinger website settings');
+  console.log('  2. Or configure the web server to serve from /dist');
+  console.log('');
+  console.log('✓ Production build ready');
 } else {
   console.log('Warning: dist/index.html not found - build may have failed');
 }
