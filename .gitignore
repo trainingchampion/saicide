@@ -30,3 +30,4 @@ public/downloads/
 # Production assets copied by postbuild (regenerated at build time)
 /assets/
 index.dev.html
+downloads/

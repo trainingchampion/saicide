@@ -571,7 +571,24 @@ const CloudStudio: React.FC<CloudStudioProps> = ({ design, setDesign }) => {
     sessions.find(s => s.id === activeSessionId) || sessions[0], 
   [sessions, activeSessionId]);
 
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>(() => {
+    // Load API keys from localStorage on init
+    try {
+      const saved = localStorage.getItem('sai_api_keys');
+      return saved ? JSON.parse(saved) : {};
+    } catch { return {}; }
+  });
+  
+  // Persist API keys to localStorage and update gemini key
+  useEffect(() => {
+    localStorage.setItem('sai_api_keys', JSON.stringify(apiKeys));
+    // If gemini/google key is saved, also save to special key for geminiService
+    const geminiKey = apiKeys['google'] || apiKeys['gemini'] || apiKeys['gemini-3-pro-preview'];
+    if (geminiKey) {
+      localStorage.setItem('sai_gemini_api_key', geminiKey);
+    }
+  }, [apiKeys]);
+  
   const { servers: mcpServers, connectServer, disconnectServer } = useMCP();
 
   const [activePersona, setActivePersona] = useState<AIPersona | null>(null);

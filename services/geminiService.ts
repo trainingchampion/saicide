@@ -43,9 +43,25 @@ interface GetApiResponseParams {
     tools?: FunctionDeclaration[];
 }
 
+// Helper to get API key with fallback
+const getApiKey = (): string => {
+    // First check localStorage for user-provided key
+    const userKey = typeof localStorage !== 'undefined' ? localStorage.getItem('sai_gemini_api_key') : null;
+    if (userKey) return userKey;
+    
+    // Fall back to environment variable (set at build time)
+    return process.env.API_KEY || '';
+};
+
 const getApiResponse = async (params: GetApiResponseParams): Promise<GenerateContentResponse> => {
     const { contents, model, systemInstruction, useThinking, useMaps, useGoogleSearch, location, responseMimeType, responseSchema, abortSignal, tools } = params;
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        throw new Error('No API key configured. Please add your Gemini API key in Settings > AI Providers.');
+    }
+    
+    const ai = new GoogleGenAI({ apiKey });
     
     // Fallback mapping for non-Gemini models to ensure real AI responses
     let targetModel = model;
@@ -381,7 +397,7 @@ Common fixes:
     },
 
     generateImage: async (prompt: string, aspectRatio: string, modelId: string): Promise<string | null> => {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: getApiKey() });
         try {
             if (modelId.includes('imagen')) {
                 // Use generateImages for Imagen models
@@ -415,7 +431,7 @@ Common fixes:
     },
 
     generateVideo: async (prompt: string, modelId: string): Promise<{ url: string; status: string } | null> => {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const ai = new GoogleGenAI({ apiKey: getApiKey() });
         try {
             let operation = await ai.models.generateVideos({
                 model: modelId,
@@ -436,7 +452,7 @@ Common fixes:
             const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
 
             if (videoUri) {
-                const response = await fetch(`${videoUri}&key=${process.env.API_KEY}`);
+                const response = await fetch(`${videoUri}&key=${getApiKey()}`);
                 if (!response.ok) {
                     throw new Error(`Failed to download video file: ${response.status} ${response.statusText}`);
                 }
