@@ -233,6 +233,11 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     const [selectedCloudProvider, setSelectedCloudProvider] = useState<string | null>(null);
     const [cloudProviders, setCloudProviders] = useState<CloudTerminalProvider[]>(CLOUD_TERMINAL_PROVIDERS);
     
+    // Backend server state
+    const [backendStatus, setBackendStatus] = useState<'checking' | 'running' | 'stopped'>('checking');
+    const [showDisconnectModal, setShowDisconnectModal] = useState(false);
+    const [isStartingBackend, setIsStartingBackend] = useState(false);
+    
     // Platform detection for shell options
     const [serverPlatform, setServerPlatform] = useState<string | null>(null);
     const [availableShells, setAvailableShells] = useState<{ id: string; name: string; available: boolean }[]>([]);
@@ -251,6 +256,88 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 setServerPlatform(isWindows ? 'win32' : 'darwin');
             });
     }, []);
+
+    // Check backend server status
+    const checkBackendStatus = useCallback(async (): Promise<boolean> => {
+        try {
+            const response = await fetch('/api/terminal/shells', { 
+                method: 'GET',
+                signal: AbortSignal.timeout(2000)
+            });
+            if (response.ok) {
+                setBackendStatus('running');
+                return true;
+            }
+            setBackendStatus('stopped');
+            return false;
+        } catch {
+            setBackendStatus('stopped');
+            return false;
+        }
+    }, []);
+
+    // Auto-start backend when terminal is opened
+    const startBackend = useCallback(async () => {
+        if (isStartingBackend || backendStatus === 'running') return true;
+        
+        setIsStartingBackend(true);
+        
+        try {
+            // Try to start the backend server via API endpoint
+            const response = await fetch('/api/start-backend', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            
+            if (response.ok) {
+                // Wait a moment for server to initialize
+                await new Promise(resolve => setTimeout(resolve, 1500));
+                const isRunning = await checkBackendStatus();
+                setIsStartingBackend(false);
+                return isRunning;
+            }
+        } catch {
+            // If API doesn't exist, the backend might already be running or needs manual start
+        }
+        
+        // Check if it's already running
+        const isRunning = await checkBackendStatus();
+        setIsStartingBackend(false);
+        
+        if (!isRunning) {
+            console.log('Backend not running. Terminal will use browser mode.');
+        }
+        
+        return isRunning;
+    }, [isStartingBackend, backendStatus, checkBackendStatus]);
+
+    // Stop/disconnect backend
+    const stopBackend = useCallback(async () => {
+        // Disconnect all socket connections
+        sessions.forEach(session => {
+            if (session.socket) {
+                session.socket.disconnect();
+            }
+        });
+        
+        // Update all sessions to disconnected
+        setSessions(prev => {
+            const updated = new Map(prev);
+            updated.forEach(session => {
+                session.isConnected = false;
+                session.socket = null;
+            });
+            return updated;
+        });
+        
+        setBackendStatus('stopped');
+        setShowDisconnectModal(false);
+    }, [sessions]);
+
+    // Check backend status on mount
+    React.useEffect(() => {
+        checkBackendStatus();
+    }, [checkBackendStatus]);
     
     // Get shell options based on detected platform
     const shellOptions = React.useMemo(() => {
@@ -1315,7 +1402,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     }, [fontSize, terminalTheme, writePrompt, handleSimulatedCommand, getAiSuggestion, suggestion]);
 
     // Create new terminal session
-    const createNewTerminal = useCallback((name?: string, shell?: string, mode?: TerminalMode, cloudProvider?: string) => {
+    const createNewTerminal = useCallback(async (name?: string, shell?: string, mode?: TerminalMode, cloudProvider?: string) => {
         const sessionId = generateSessionId();
         const sessionNum = sessions.size + 1;
         const terminalMode = mode || selectedTerminalMode;
@@ -1325,6 +1412,11 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 ? `Browser ${sessionNum}`
                 : `Terminal ${sessionNum}`);
         const sessionShell = shell || 'default';
+
+        // Auto-start backend for local mode
+        if (terminalMode === 'local') {
+            await startBackend();
+        }
 
         const newSession: TerminalSession = {
             id: sessionId,
@@ -1379,7 +1471,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
         setTimeout(() => initializeTerminal(sessionId), 50);
 
         return sessionId;
-    }, [generateSessionId, sessions.size, panes, activePane, initializeTerminal]);
+    }, [generateSessionId, sessions.size, panes, activePane, initializeTerminal, selectedTerminalMode, startBackend]);
 
     // Switch active session in pane
     const switchSession = useCallback((paneId: string, sessionId: string) => {
@@ -1748,10 +1840,38 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         ) : (
                             <>
                                 <Activity size={10} className={activeSession?.isConnected ? 'animate-pulse' : ''} />
-                                {activeSession?.isConnected ? 'Connected' : 'Local'}
+                                {isStartingBackend ? 'Starting...' : activeSession?.isConnected ? 'Connected' : 'Disconnected'}
                             </>
                         )}
                     </div>
+                    
+                    {/* Disconnect/Reconnect Button */}
+                    {activeSession?.mode === 'local' && (
+                        activeSession?.isConnected ? (
+                            <button
+                                onClick={() => setShowDisconnectModal(true)}
+                                className="p-1.5 text-emerald-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                                title="Disconnect from backend"
+                            >
+                                <Power size={14} />
+                            </button>
+                        ) : (
+                            <button
+                                onClick={async () => {
+                                    await startBackend();
+                                    // Reinitialize the current session's socket connection
+                                    if (activeSession?.id) {
+                                        setTimeout(() => initializeTerminal(activeSession.id), 100);
+                                    }
+                                }}
+                                disabled={isStartingBackend}
+                                className="p-1.5 text-amber-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-all disabled:opacity-50"
+                                title="Connect to backend"
+                            >
+                                {isStartingBackend ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
+                            </button>
+                        )
+                    )}
                     
                     <div className="w-px h-4 bg-white/10 mx-1" />
                     
@@ -2450,6 +2570,47 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                     <CheckCircle size={14} className="text-emerald-400" />
                     <span className="text-xs font-medium text-emerald-300">Copied to clipboard</span>
                 </div>
+            )}
+
+            {/* Disconnect Backend Modal */}
+            {showDisconnectModal && (
+                <>
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" onClick={() => setShowDisconnectModal(false)} />
+                    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50 w-[400px] bg-gradient-to-b from-[#1a1d26] to-[#14161d] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+                        <div className="p-6">
+                            <div className="flex items-center gap-3 mb-4">
+                                <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+                                    <Power size={20} className="text-red-400" />
+                                </div>
+                                <div>
+                                    <h3 className="text-lg font-semibold text-white">Disconnect Terminal</h3>
+                                    <p className="text-xs text-zinc-500">End connection to local backend</p>
+                                </div>
+                            </div>
+                            
+                            <p className="text-sm text-zinc-400 mb-6">
+                                This will disconnect all terminal sessions from your local machine. 
+                                You can reconnect at any time by clicking the connect button.
+                            </p>
+                            
+                            <div className="flex items-center gap-3">
+                                <button
+                                    onClick={() => setShowDisconnectModal(false)}
+                                    className="flex-1 px-4 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-sm font-medium text-zinc-300 transition-all"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={stopBackend}
+                                    className="flex-1 px-4 py-2.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 rounded-xl text-sm font-medium text-red-400 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <Power size={16} />
+                                    Disconnect
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </>
             )}
 
             {/* Scanline Effect */}
