@@ -87,7 +87,7 @@ if (fs.existsSync(distPath)) {
 }
 
 // SPA fallback
-app.get('/{*path}', (req, res) => {
+app.get('*', (req, res) => {
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
