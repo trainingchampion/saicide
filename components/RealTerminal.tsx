@@ -1840,37 +1840,20 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         ) : (
                             <>
                                 <Activity size={10} className={activeSession?.isConnected ? 'animate-pulse' : ''} />
-                                {isStartingBackend ? 'Starting...' : activeSession?.isConnected ? 'Connected' : 'Disconnected'}
+                                {isStartingBackend ? 'Starting...' : activeSession?.isConnected ? 'Connected' : 'Browser'}
                             </>
                         )}
                     </div>
                     
-                    {/* Disconnect/Reconnect Button */}
-                    {activeSession?.mode === 'local' && (
-                        activeSession?.isConnected ? (
-                            <button
-                                onClick={() => setShowDisconnectModal(true)}
-                                className="p-1.5 text-emerald-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
-                                title="Disconnect from backend"
-                            >
-                                <Power size={14} />
-                            </button>
-                        ) : (
-                            <button
-                                onClick={async () => {
-                                    await startBackend();
-                                    // Reinitialize the current session's socket connection
-                                    if (activeSession?.id) {
-                                        setTimeout(() => initializeTerminal(activeSession.id), 100);
-                                    }
-                                }}
-                                disabled={isStartingBackend}
-                                className="p-1.5 text-amber-400 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-all disabled:opacity-50"
-                                title="Connect to backend"
-                            >
-                                {isStartingBackend ? <Loader2 size={14} className="animate-spin" /> : <Zap size={14} />}
-                            </button>
-                        )
+                    {/* Disconnect/Reconnect Button - only show when connected or in dev mode */}
+                    {activeSession?.mode === 'local' && activeSession?.isConnected && (
+                        <button
+                            onClick={() => setShowDisconnectModal(true)}
+                            className="p-1.5 text-emerald-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all"
+                            title="Disconnect from backend"
+                        >
+                            <Power size={14} />
+                        </button>
                     )}
                     
                     <div className="w-px h-4 bg-white/10 mx-1" />
