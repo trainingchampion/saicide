@@ -446,50 +446,22 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             if (isMeta && e.key === 'ArrowUp') {
                 // Navigate to previous command
                 e.preventDefault();
-                const result = navigateToPreviousCommand(activeSession.shellIntegration);
-                if (result && activeSession) {
-                    setSessions(prevSessions => {
-                        const newSessions = new Map(prevSessions);
-                        const session = newSessions.get(activeSession.id);
-                        if (session) {
-                            session.shellIntegration = result;
-                        }
-                        return newSessions;
-                    });
-                }
+                navigateToPreviousCommand();
             } else if (isMeta && e.key === 'ArrowDown') {
                 // Navigate to next command
                 e.preventDefault();
-                const result = navigateToNextCommand(activeSession.shellIntegration);
-                if (result && activeSession) {
-                    setSessions(prevSessions => {
-                        const newSessions = new Map(prevSessions);
-                        const session = newSessions.get(activeSession.id);
-                        if (session) {
-                            session.shellIntegration = result;
-                        }
-                        return newSessions;
-                    });
-                }
+                navigateToNextCommand();
             } else if (isMeta && e.key === 'g') {
                 // Toggle Recent Directories panel
                 e.preventDefault();
                 setShowRecentDirectories(prev => !prev);
-            } else if (isMeta && e.key === 'r' && !e.shiftKey) {
-                // Rerun last command (only if not refresh shortcut)
-                if (activeSession.shellIntegration.commands.length > 0) {
-                    const lastCmd = activeSession.shellIntegration.commands[activeSession.shellIntegration.commands.length - 1];
-                    if (lastCmd) {
-                        e.preventDefault();
-                        handleSimulatedCommand(lastCmd.command);
-                    }
-                }
             }
+            // Note: Cmd+R for rerun is handled separately after handleSimulatedCommand is defined
         };
         
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeSession]);
+    }, [activeSession, navigateToPreviousCommand, navigateToNextCommand]);
     
     // Terminal themes
     const terminalTheme = useMemo(() => ({
