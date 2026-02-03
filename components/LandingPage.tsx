@@ -746,10 +746,19 @@ const LandingPage: React.FC<LandingPageProps> = ({ onLaunch, onSubscribe }) => {
                                 </div>
                             )}
                             <h3 className="text-xl font-black text-white uppercase tracking-widest mb-2">{plan.name}</h3>
-                            <div className="flex items-baseline gap-1 mb-6">
+                            <div className="flex items-baseline gap-1 mb-4">
                                 <span className="text-4xl font-black text-white">${plan.priceUSD}</span>
                                 <span className="text-sm text-gray-500 font-bold uppercase">/mo</span>
                             </div>
+                            {plan.priceUSD > 0 && (
+                                <button 
+                                    onClick={onSubscribe}
+                                    className="w-full mb-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest bg-gradient-to-r from-emerald-500 to-cyan-500 text-black hover:from-emerald-400 hover:to-cyan-400 shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center gap-2"
+                                >
+                                    <CreditCard size={14} />
+                                    Pay Now
+                                </button>
+                            )}
                             <div className="mb-8 p-3 rounded-xl bg-white/5 border border-white/5">
                                 <div className="text-[10px] text-gray-400 font-black uppercase tracking-widest mb-1">Quota</div>
                                 <div className="text-2xl font-black text-emerald-400">{plan.tokens} <span className="text-sm text-white">Tokens</span></div>
