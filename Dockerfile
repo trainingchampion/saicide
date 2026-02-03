@@ -3,6 +3,16 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Define build arguments for Vite environment variables
+ARG VITE_API_KEY
+ARG VITE_GOOGLE_CLIENT_ID
+ARG VITE_GITHUB_CLIENT_ID
+
+# Set them as environment variables for the build
+ENV VITE_API_KEY=$VITE_API_KEY
+ENV VITE_GOOGLE_CLIENT_ID=$VITE_GOOGLE_CLIENT_ID
+ENV VITE_GITHUB_CLIENT_ID=$VITE_GITHUB_CLIENT_ID
+
 # Install build dependencies for node-pty
 RUN apk add --no-cache python3 make g++
 
