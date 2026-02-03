@@ -1,79 +1,180 @@
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
+const { Server } = require('socket.io');
+const os = require('os');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
-
-const distPath = path.join(__dirname, 'dist');
-
-// Remove or rename root index.html to prevent Apache from serving it
-const rootIndexPath = path.join(__dirname, 'index.html');
-if (fs.existsSync(rootIndexPath)) {
-  try {
-    // Try to delete it first
-    fs.unlinkSync(rootIndexPath);
-    console.log('Deleted root index.html');
-  } catch (e) {
-    console.log('Could not delete root index.html:', e.message);
-    // Try rename as fallback
-    try {
-      fs.renameSync(rootIndexPath, path.join(__dirname, '_index.dev.html'));
-      console.log('Renamed root index.html to _index.dev.html');
-    } catch (e2) {
-      console.log('Could not rename root index.html:', e2.message);
-    }
-  }
+// Try to load node-pty for real terminal support
+let pty;
+try {
+  pty = require('node-pty');
+  console.log('node-pty loaded successfully - real terminal support enabled');
+} catch (e) {
+  console.warn('node-pty not available - terminal will run in browser mode');
 }
 
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: '*' },
+  path: '/socket.io/'
+});
+
+const PORT = process.env.PORT || 8080;
+const distPath = path.join(__dirname, 'dist');
+const indexPath = path.join(distPath, 'index.html');
+
 // Log startup info
-console.log('Starting server...');
+console.log('Starting Sai Production Server...');
 console.log('PORT:', PORT);
+console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('distPath:', distPath);
-console.log('dist exists:', fs.existsSync(distPath));
+console.log('distPath exists:', fs.existsSync(distPath));
+console.log('index.html exists:', fs.existsSync(indexPath));
+console.log('node-pty available:', !!pty);
 
-// Health check - place first so it always works
-app.get('/health', (req, res) => res.send('OK'));
+if (fs.existsSync(distPath)) {
+  console.log('dist contents:', fs.readdirSync(distPath));
+}
 
-// Debug endpoint
-app.get('/debug', (req, res) => {
-  const indexContent = fs.existsSync(path.join(distPath, 'index.html')) 
-    ? fs.readFileSync(path.join(distPath, 'index.html'), 'utf8').substring(0, 500)
-    : 'NOT FOUND';
-  const rootIndexExists = fs.existsSync(path.join(__dirname, 'index.html'));
-  const info = {
-    distPath: distPath,
-    distExists: fs.existsSync(distPath),
-    distFiles: fs.existsSync(distPath) ? fs.readdirSync(distPath) : [],
-    rootFiles: fs.readdirSync(__dirname).slice(0, 20),
-    rootIndexHtmlExists: rootIndexExists,
-    indexHtmlPreview: indexContent
-  };
-  res.json(info);
+// Middleware
+app.use(express.json({ limit: '50mb' }));
+
+// Health check - FIRST route
+app.get('/health', (req, res) => res.status(200).send('OK'));
+
+// API endpoint to get available shells
+app.get('/api/terminal/shells', (req, res) => {
+  const platform = os.platform();
+  const shells = [];
+  
+  if (platform === 'linux' || platform === 'darwin') {
+    shells.push(
+      { id: 'sh', name: 'Shell', available: true },
+      { id: 'bash', name: 'Bash', available: fs.existsSync('/bin/bash') },
+      { id: 'zsh', name: 'Zsh', available: fs.existsSync('/bin/zsh') }
+    );
+  } else {
+    shells.push(
+      { id: 'powershell', name: 'PowerShell', available: true },
+      { id: 'cmd', name: 'Command Prompt', available: true }
+    );
+  }
+  
+  res.json({ platform, shells, ptyAvailable: !!pty });
 });
 
-// Test endpoint - explicitly serve dist/index.html
-app.get('/test', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+// Block dev files
+app.use((req, res, next) => {
+  const blocked = ['/index.tsx', '/index.ts', '/src/', '/components/', '/services/'];
+  if (blocked.some(b => req.path.startsWith(b))) {
+    return res.status(404).send('Not found');
+  }
+  next();
 });
 
-// Health check
-app.get('/health', (req, res) => res.send('OK'));
-
-// IMPORTANT: Handle root path BEFORE static middleware
-// This prevents Apache/root index.html from being served
-app.get('/', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
-});
-
-// Serve static files from dist ONLY (not root)
-app.use('/assets', express.static(path.join(distPath, 'assets')));
+// Serve static files
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath, {
+    index: 'index.html',
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      }
+    }
+  }));
+}
 
 // SPA fallback
-app.get('*', (req, res) => {
-  res.sendFile(path.join(distPath, 'index.html'));
+app.get('/{*path}', (req, res) => {
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(500).send('Application not built');
+  }
 });
 
-app.listen(PORT, () => {
-  console.log('Server running on port ' + PORT);
+// Socket.io terminal handling
+io.on('connection', (socket) => {
+  console.log('[Terminal] Client connected:', socket.id);
+  
+  let ptyProcess = null;
+  
+  if (pty) {
+    try {
+      // Get shell based on platform
+      const shell = process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/sh');
+      const shellArgs = process.platform === 'win32' ? [] : ['--login'];
+      
+      ptyProcess = pty.spawn(shell, shellArgs, {
+        name: 'xterm-256color',
+        cols: 80,
+        rows: 24,
+        cwd: process.env.HOME || '/tmp',
+        env: { ...process.env, TERM: 'xterm-256color' }
+      });
+      
+      console.log('[Terminal] PTY spawned for:', socket.id);
+      
+      ptyProcess.onData((data) => {
+        socket.emit('output', data);
+      });
+      
+      ptyProcess.onExit(({ exitCode, signal }) => {
+        console.log('[Terminal] Process exited:', exitCode, signal);
+        socket.emit('exit', { exitCode, signal });
+      });
+      
+    } catch (err) {
+      console.error('[Terminal] Failed to spawn PTY:', err.message);
+      socket.emit('output', '\r\nTerminal unavailable in this environment.\r\n');
+    }
+  } else {
+    socket.emit('output', '\r\nBrowser terminal mode - real shell not available.\r\n');
+  }
+  
+  socket.on('input', (data) => {
+    if (ptyProcess) {
+      ptyProcess.write(data);
+    }
+  });
+  
+  socket.on('resize', ({ cols, rows }) => {
+    if (ptyProcess) {
+      try {
+        ptyProcess.resize(cols, rows);
+      } catch (e) {
+        // Ignore resize errors
+      }
+    }
+  });
+  
+  socket.on('disconnect', () => {
+    console.log('[Terminal] Client disconnected:', socket.id);
+    if (ptyProcess) {
+      try {
+        ptyProcess.kill();
+      } catch (e) {
+        // Ignore
+      }
+    }
+  });
+});
+
+// Error handler
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).send('Server error');
+});
+
+// Start server
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`[Sai Backend] Server running on http://0.0.0.0:${PORT}`);
+  console.log(`[Sai Backend] Terminal support: ${pty ? 'ENABLED' : 'BROWSER ONLY'}`);
+});
+
+server.on('error', (err) => {
+  console.error('Failed to start server:', err);
+  process.exit(1);
 });
