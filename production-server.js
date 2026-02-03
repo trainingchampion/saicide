@@ -5,13 +5,24 @@ const http = require('http');
 const { Server } = require('socket.io');
 const os = require('os');
 
+// Global error handlers to prevent crashes
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught Exception:', err.message);
+  // Don't exit - try to keep running
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection:', reason);
+});
+
 // Try to load node-pty for real terminal support
-let pty;
+let pty = null;
 try {
   pty = require('node-pty');
   console.log('node-pty loaded successfully - real terminal support enabled');
 } catch (e) {
-  console.warn('node-pty not available - terminal will run in browser mode');
+  console.warn('node-pty not available - terminal will run in browser mode:', e.message);
+  pty = null;
 }
 
 const app = express();
@@ -168,13 +179,29 @@ app.use((err, req, res, next) => {
   res.status(500).send('Server error');
 });
 
-// Start server
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`[Sai Backend] Server running on http://0.0.0.0:${PORT}`);
-  console.log(`[Sai Backend] Terminal support: ${pty ? 'ENABLED' : 'BROWSER ONLY'}`);
-});
+// Start server with timeout safeguard
+const startServer = () => {
+  try {
+    server.listen(PORT, '0.0.0.0', () => {
+      console.log(`[Sai Backend] ✓ Server running on http://0.0.0.0:${PORT}`);
+      console.log(`[Sai Backend] Terminal support: ${pty ? 'ENABLED' : 'BROWSER ONLY'}`);
+      console.log(`[Sai Backend] Health check: http://0.0.0.0:${PORT}/health`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+};
 
 server.on('error', (err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
+  console.error('Server error:', err);
+  if (err.code === 'EADDRINUSE') {
+    console.log(`Port ${PORT} is in use, waiting...`);
+    setTimeout(startServer, 1000);
+  } else {
+    process.exit(1);
+  }
 });
+
+// Start immediately
+startServer();

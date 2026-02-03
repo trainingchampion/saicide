@@ -31,21 +31,15 @@ RUN ls -la index.html && head -5 index.html
 # Build the application
 RUN npm run build
 
-# Production stage
+# Production stage - minimal image
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies for node-pty
-RUN apk add --no-cache python3 make g++
-
-# Install production server dependencies directly
+# Install only essential production dependencies (skip node-pty for Cloud Run)
 RUN npm install express cors socket.io
 
-# Try to install node-pty (may fail on some platforms, that's OK)
-RUN npm install node-pty || echo "node-pty not available, terminal will use browser mode"
-
-# Copy built assets
+# Copy built assets from builder
 COPY --from=builder /app/dist ./dist
 
 # Copy server files
