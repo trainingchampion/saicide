@@ -62,6 +62,8 @@ export default defineConfig(({ mode }) => {
     },
   },
   server: {
+    // Use index.dev.html for development since index.html is the compiled version
+    open: '/index.dev.html',
     proxy: {
       "/api": {
         target: "http://localhost:4000",
