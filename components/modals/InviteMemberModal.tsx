@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Check, Link as LinkIcon, Calendar, Mail, Download } from 'lucide-react';
+import { Check, Link as LinkIcon, Calendar, Mail, Download, CheckCircle, AlertCircle, ExternalLink } from 'lucide-react';
 
 interface InviteMemberModalProps {
   isOpen: boolean;
@@ -12,23 +12,70 @@ const InviteMemberModal: React.FC<InviteMemberModalProps> = ({ isOpen, onClose, 
   const [email, setEmail] = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [projectLink, setProjectLink] = useState('');
+  const [inviteStatus, setInviteStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+  const [errorMessage, setErrorMessage] = useState('');
 
   // Generate a stable link when the modal opens if one doesn't exist
   useEffect(() => {
     if (isOpen && !projectLink) {
         setProjectLink(`https://sai.sh/project/${Math.random().toString(36).substring(7)}`);
     }
+    // Reset status when modal opens
+    if (isOpen) {
+      setInviteStatus('idle');
+      setErrorMessage('');
+    }
   }, [isOpen, projectLink]);
 
   const handleInvite = () => {
-    if (email.trim() && email.includes('@')) {
-      alert(`Invitation sent to ${email}`);
-      setEmail('');
-      if (onInviteSent) onInviteSent();
-      onClose();
-    } else {
-      alert('Please enter a valid email address.');
+    // Validate email
+    if (!email.trim()) {
+      setErrorMessage('Please enter an email address.');
+      setInviteStatus('error');
+      return;
     }
+    
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email.trim())) {
+      setErrorMessage('Please enter a valid email address.');
+      setInviteStatus('error');
+      return;
+    }
+
+    setInviteStatus('sending');
+    setErrorMessage('');
+
+    // Create mailto link with invitation details
+    const subject = encodeURIComponent('You\'re invited to collaborate on SAI');
+    const body = encodeURIComponent(
+      `Hi there!\n\n` +
+      `You've been invited to join a collaborative coding session on SAI - the AI-powered Cloud IDE.\n\n` +
+      `Click the link below to join the project:\n${projectLink}\n\n` +
+      `Looking forward to collaborating with you!\n\n` +
+      `---\nSent via SAI Cloud IDE\nhttps://sai.sh`
+    );
+    
+    // Open mailto link
+    const mailtoLink = `mailto:${email.trim()}?subject=${subject}&body=${body}`;
+    window.open(mailtoLink, '_blank');
+
+    // Show success state
+    setTimeout(() => {
+      setInviteStatus('success');
+      
+      // Copy invite link to clipboard as backup
+      navigator.clipboard.writeText(projectLink).catch(() => {});
+      
+      // Trigger callback
+      if (onInviteSent) onInviteSent();
+      
+      // Close modal after showing success
+      setTimeout(() => {
+        setEmail('');
+        setInviteStatus('idle');
+        onClose();
+      }, 1500);
+    }, 500);
   };
   
   const handleCopyLink = () => {
@@ -153,19 +200,76 @@ END:VCALENDAR`;
         </div>
 
         <label className="text-sm font-medium text-gray-300 block mb-2">Invite by Email</label>
+        
+        {/* Status Messages */}
+        {inviteStatus === 'success' && (
+          <div className="mb-3 p-3 bg-green-500/20 border border-green-500/50 rounded-lg flex items-center gap-2 text-green-400 text-sm">
+            <CheckCircle size={16} />
+            <span>Invitation sent! Your email client should open with the invite.</span>
+          </div>
+        )}
+        
+        {inviteStatus === 'error' && errorMessage && (
+          <div className="mb-3 p-3 bg-red-500/20 border border-red-500/50 rounded-lg flex items-center gap-2 text-red-400 text-sm">
+            <AlertCircle size={16} />
+            <span>{errorMessage}</span>
+          </div>
+        )}
+        
         <div className="flex gap-2">
             <div className="relative flex-1">
                 <Mail className="absolute left-3 top-2.5 text-gray-500 w-4 h-4" />
                 <input
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={e => {
+                  setEmail(e.target.value);
+                  if (inviteStatus === 'error') {
+                    setInviteStatus('idle');
+                    setErrorMessage('');
+                  }
+                }}
+                onKeyDown={e => e.key === 'Enter' && handleInvite()}
                 placeholder="teammate@example.com"
-                className="w-full bg-gray-900/50 border border-gray-700 rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                disabled={inviteStatus === 'sending' || inviteStatus === 'success'}
+                className={`w-full bg-gray-900/50 border rounded-lg pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors ${
+                  inviteStatus === 'error' ? 'border-red-500' : 'border-gray-700'
+                } ${inviteStatus === 'sending' || inviteStatus === 'success' ? 'opacity-50 cursor-not-allowed' : ''}`}
                 />
             </div>
-            <button onClick={handleInvite} className="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-sm font-semibold whitespace-nowrap">Send Invite</button>
+            <button 
+              onClick={handleInvite} 
+              disabled={inviteStatus === 'sending' || inviteStatus === 'success'}
+              className={`px-4 py-2 rounded-lg text-sm font-semibold whitespace-nowrap flex items-center gap-2 transition-all ${
+                inviteStatus === 'sending' 
+                  ? 'bg-blue-600 opacity-75 cursor-wait' 
+                  : inviteStatus === 'success'
+                  ? 'bg-green-500 cursor-default'
+                  : 'bg-blue-500 hover:bg-blue-600 active:scale-95'
+              }`}
+            >
+              {inviteStatus === 'sending' ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  Sending...
+                </>
+              ) : inviteStatus === 'success' ? (
+                <>
+                  <CheckCircle size={16} />
+                  Sent!
+                </>
+              ) : (
+                <>
+                  <ExternalLink size={14} />
+                  Send Invite
+                </>
+              )}
+            </button>
         </div>
+        
+        <p className="text-xs text-gray-500 mt-2">
+          This will open your email client with a pre-filled invitation. The project link has also been copied to your clipboard.
+        </p>
         
         <div className="mt-6 flex justify-end">
           <button onClick={onClose} className="px-4 py-2 rounded-lg text-gray-400 hover:text-white text-sm">Close</button>
