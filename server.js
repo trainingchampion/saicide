@@ -45,9 +45,7 @@ app.get('*', (req, res) => {
 
 module.exports = app;
 
-// Only start if run directly (not imported by app.js)
-// if (require.main === module) {
-//   app.listen(PORT, () => {
-//     console.log(`Server running on port ${PORT}`);
-//   });
-// }
+// Start server - required for Cloud Run
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
+});
