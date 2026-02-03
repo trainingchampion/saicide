@@ -25,6 +25,9 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Verify index.html exists before build
+RUN ls -la index.html && head -5 index.html
+
 # Build the application
 RUN npm run build
 

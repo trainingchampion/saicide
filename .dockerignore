@@ -3,6 +3,7 @@ dist
 .git
 .gitignore
 *.md
+!README.md
 .env
 .env.*
 .DS_Store
@@ -13,3 +14,8 @@ coverage
 *.test.ts
 *.test.tsx
 __tests__
+
+# Explicitly include critical build files
+!index.html
+!vite.config.ts
+!tsconfig.json
