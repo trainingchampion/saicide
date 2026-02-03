@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback, useMemo, Component, ErrorInfo, ReactNode } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -6,58 +6,6 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { io, Socket } from 'socket.io-client';
 import { FileNode, GitStatus } from '../types';
-
-// Error Boundary to prevent terminal crashes from breaking the entire app
-interface ErrorBoundaryProps {
-    children: ReactNode;
-    fallback?: ReactNode;
-}
-
-interface ErrorBoundaryState {
-    hasError: boolean;
-    error: Error | null;
-}
-
-class TerminalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-    constructor(props: ErrorBoundaryProps) {
-        super(props);
-        this.state = { hasError: false, error: null };
-    }
-
-    static getDerivedStateFromError(error: Error): ErrorBoundaryState {
-        return { hasError: true, error };
-    }
-
-    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error('Terminal Error:', error, errorInfo);
-    }
-
-    render() {
-        if (this.state.hasError) {
-            return this.props.fallback || (
-                <div className="h-full w-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
-                    <div className="text-red-400 mb-4 text-sm font-mono">Terminal Error</div>
-                    <div className="text-zinc-500 text-xs text-center max-w-md mb-4">
-                        The terminal encountered an error. This is usually caused by browser restrictions or missing dependencies.
-                    </div>
-                    <button
-                        onClick={() => this.setState({ hasError: false, error: null })}
-                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-zinc-300 transition-all"
-                    >
-                        Retry
-                    </button>
-                    {this.state.error && (
-                        <div className="mt-4 text-[10px] text-zinc-600 font-mono max-w-md overflow-hidden">
-                            {this.state.error.message}
-                        </div>
-                    )}
-                </div>
-            );
-        }
-
-        return this.props.children;
-    }
-}
 import { 
     Loader2, 
     Activity, 
@@ -307,6 +255,9 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     onAiIntentRequest,
     onCwdChange
 }, ref) => {
+    // Error state for graceful error handling
+    const [terminalError, setTerminalError] = useState<Error | null>(null);
+    
     // State for multi-terminal support
     const [sessions, setSessions] = useState<Map<string, TerminalSession>>(new Map());
     const [panes, setPanes] = useState<TerminalPane[]>([]);
@@ -1942,6 +1893,27 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     const currentPane = useMemo(() => panes.find(p => p.id === activePane), [panes, activePane]);
     const activeSession = useMemo(() => getActiveSession(), [getActiveSession]);
 
+    // Error state UI
+    if (terminalError) {
+        return (
+            <div className="h-full w-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
+                <div className="text-red-400 mb-4 text-sm font-mono">Terminal Error</div>
+                <div className="text-zinc-500 text-xs text-center max-w-md mb-4">
+                    The terminal encountered an error. This is usually caused by browser restrictions or missing dependencies.
+                </div>
+                <button
+                    onClick={() => setTerminalError(null)}
+                    className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-zinc-300 transition-all"
+                >
+                    Retry
+                </button>
+                <div className="mt-4 text-[10px] text-zinc-600 font-mono max-w-md overflow-hidden">
+                    {terminalError.message}
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={`relative h-full w-full bg-[#0a0a0f] flex flex-col overflow-hidden transition-all duration-300 ${isMaximized ? 'fixed inset-0 z-50' : ''}`}>
             {/* Terminal Header / Tab Bar */}
@@ -3228,13 +3200,4 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
 RealTerminal.displayName = 'RealTerminal';
 
-// Wrapper component that includes error boundary
-const RealTerminalWithErrorBoundary = forwardRef<RealTerminalRef, RealTerminalProps>((props, ref) => (
-    <TerminalErrorBoundary>
-        <RealTerminal {...props} ref={ref} />
-    </TerminalErrorBoundary>
-));
-
-RealTerminalWithErrorBoundary.displayName = 'RealTerminalWithErrorBoundary';
-
-export default RealTerminalWithErrorBoundary;
+export default RealTerminal;
