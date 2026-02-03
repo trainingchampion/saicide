@@ -469,9 +469,9 @@ This project is proprietary software.
 
 <div align="center">
 
-**SAI IDE V3** — Build. Ship. Scale.
+**SAI IDE** — Build. Ship. Scale.
 
-Made with ❤️ for developers who build the future.
+Made with ❤️ by SSLabs for developers who build the future.
 
 </div>
 
