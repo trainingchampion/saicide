@@ -435,34 +435,6 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
         sessionsRef.current = sessions;
     }, [sessions]);
     
-    // Shell Integration keyboard shortcuts (⌘↑, ⌘↓, ⌘G, ⌘R)
-    useEffect(() => {
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (!activeSession) return;
-            
-            // Check for meta key (Cmd on Mac, Ctrl on Windows)
-            const isMeta = e.metaKey || e.ctrlKey;
-            
-            if (isMeta && e.key === 'ArrowUp') {
-                // Navigate to previous command
-                e.preventDefault();
-                navigateToPreviousCommand();
-            } else if (isMeta && e.key === 'ArrowDown') {
-                // Navigate to next command
-                e.preventDefault();
-                navigateToNextCommand();
-            } else if (isMeta && e.key === 'g') {
-                // Toggle Recent Directories panel
-                e.preventDefault();
-                setShowRecentDirectories(prev => !prev);
-            }
-            // Note: Cmd+R for rerun is handled separately after handleSimulatedCommand is defined
-        };
-        
-        window.addEventListener('keydown', handleKeyDown);
-        return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeSession, navigateToPreviousCommand, navigateToNextCommand]);
-    
     // Terminal themes
     const terminalTheme = useMemo(() => ({
         background: 'transparent',
@@ -1858,6 +1830,30 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     // Get current pane
     const currentPane = useMemo(() => panes.find(p => p.id === activePane), [panes, activePane]);
     const activeSession = useMemo(() => getActiveSession(), [getActiveSession]);
+
+    // Shell Integration keyboard shortcuts (⌘↑, ⌘↓, ⌘G)
+    // This useEffect must be AFTER activeSession is defined
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!activeSession) return;
+            
+            const isMeta = e.metaKey || e.ctrlKey;
+            
+            if (isMeta && e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateToPreviousCommand();
+            } else if (isMeta && e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateToNextCommand();
+            } else if (isMeta && e.key === 'g') {
+                e.preventDefault();
+                setShowRecentDirectories(prev => !prev);
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [activeSession, navigateToPreviousCommand, navigateToNextCommand]);
 
     // Error state UI
     if (terminalError) {
