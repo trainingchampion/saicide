@@ -64,6 +64,51 @@ import {
 // Terminal connection modes
 type TerminalMode = 'local' | 'cloud' | 'browser';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SHELL INTEGRATION - VS Code-style command detection and decorations
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Command execution entry with decoration info (VS Code OSC 633 compatible)
+interface CommandEntry {
+    id: string;
+    command: string;
+    startTime: Date;
+    endTime?: Date;
+    duration?: number;
+    exitCode?: number;
+    cwd: string;
+    // Terminal buffer positions for navigation
+    startLine: number;
+    endLine?: number;
+    // Decoration state
+    decoration: 'success' | 'error' | 'running' | 'neutral';
+    // Output captured (for quick access)
+    outputPreview?: string;
+}
+
+// Directory history entry
+interface DirectoryEntry {
+    path: string;
+    lastVisited: Date;
+    visitCount: number;
+}
+
+// Shell integration state
+interface ShellIntegrationState {
+    enabled: boolean;
+    quality: 'none' | 'basic' | 'rich';
+    // Command tracking
+    commands: CommandEntry[];
+    currentCommandId?: string;
+    // Directory tracking
+    directories: DirectoryEntry[];
+    currentDirectory: string;
+    // Sticky scroll state
+    stickyCommand?: CommandEntry;
+    // Navigation state
+    selectedCommandIndex: number;
+}
+
 // Cloud provider configurations for terminal
 interface CloudTerminalProvider {
     id: string;
@@ -126,6 +171,8 @@ interface TerminalSession {
         pythonVersion?: string;
         gitBranch?: string;
     };
+    // Shell Integration (VS Code-style)
+    shellIntegration: ShellIntegrationState;
 }
 
 interface TerminalPane {
@@ -368,6 +415,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     const [showSelfHealingPanel, setShowSelfHealingPanel] = useState(false);
     const outputBufferRef = useRef<Map<string, string>>(new Map());
     
+    // Shell Integration State (VS Code-style)
+    const [showStickyScroll, setShowStickyScroll] = useState(true);
+    const [showCommandDecorations, setShowCommandDecorations] = useState(true);
+    const [showRecentDirectories, setShowRecentDirectories] = useState(false);
+    const [showCommandGuide, setShowCommandGuide] = useState(false);
+    const [hoveredCommandId, setHoveredCommandId] = useState<string | null>(null);
+    
     const terminalContainerRef = useRef<HTMLDivElement>(null);
     const searchInputRef = useRef<HTMLInputElement>(null);
     const sessionCounter = useRef(0);
@@ -377,6 +431,68 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
     useEffect(() => {
         sessionsRef.current = sessions;
     }, [sessions]);
+    
+    // Shell Integration keyboard shortcuts (⌘↑, ⌘↓, ⌘G, ⌘R)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!activeSession) return;
+            
+            // Check for meta key (Cmd on Mac, Ctrl on Windows)
+            const isMeta = e.metaKey || e.ctrlKey;
+            
+            if (isMeta && e.key === 'ArrowUp') {
+                // Navigate to previous command
+                e.preventDefault();
+                const result = navigateToPreviousCommand(activeSession.shellIntegration);
+                if (result) {
+                    setActiveSessionId(prev => {
+                        setSessions(prevSessions => {
+                            const newSessions = new Map(prevSessions);
+                            const session = newSessions.get(activeSessionId);
+                            if (session) {
+                                session.shellIntegration = result;
+                            }
+                            return newSessions;
+                        });
+                        return prev;
+                    });
+                }
+            } else if (isMeta && e.key === 'ArrowDown') {
+                // Navigate to next command
+                e.preventDefault();
+                const result = navigateToNextCommand(activeSession.shellIntegration);
+                if (result) {
+                    setActiveSessionId(prev => {
+                        setSessions(prevSessions => {
+                            const newSessions = new Map(prevSessions);
+                            const session = newSessions.get(activeSessionId);
+                            if (session) {
+                                session.shellIntegration = result;
+                            }
+                            return newSessions;
+                        });
+                        return prev;
+                    });
+                }
+            } else if (isMeta && e.key === 'g') {
+                // Toggle Recent Directories panel
+                e.preventDefault();
+                setShowRecentDirectories(prev => !prev);
+            } else if (isMeta && e.key === 'r' && !e.shiftKey) {
+                // Rerun last command (only if not refresh shortcut)
+                if (activeSession.shellIntegration.commands.length > 0) {
+                    const lastCmd = activeSession.shellIntegration.commands[activeSession.shellIntegration.commands.length - 1];
+                    if (lastCmd) {
+                        e.preventDefault();
+                        handleSimulatedCommand(lastCmd.command);
+                    }
+                }
+            }
+        };
+        
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [activeSession, activeSessionId]);
     
     // Terminal themes
     const terminalTheme = useMemo(() => ({
@@ -511,6 +627,211 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
         setLastCopiedText(text);
         setTimeout(() => setLastCopiedText(null), 2000);
     }, []);
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // SHELL INTEGRATION - VS Code-style Command Detection & Decorations
+    // ═══════════════════════════════════════════════════════════════════════════
+    
+    // Create initial shell integration state
+    const createShellIntegrationState = useCallback((): ShellIntegrationState => ({
+        enabled: true,
+        quality: 'rich',
+        commands: [],
+        directories: [],
+        currentDirectory: '~',
+        selectedCommandIndex: -1,
+    }), []);
+
+    // Start tracking a new command
+    const startCommandTracking = useCallback((sessionId: string, command: string) => {
+        const session = sessionsRef.current.get(sessionId);
+        if (!session?.terminal) return;
+        
+        const commandEntry: CommandEntry = {
+            id: `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            command,
+            startTime: new Date(),
+            cwd: session.cwd,
+            startLine: session.terminal.buffer.active.cursorY + session.terminal.buffer.active.viewportY,
+            decoration: 'running',
+        };
+        
+        setSessions(prev => {
+            const updated = new Map(prev);
+            const s = updated.get(sessionId);
+            if (s) {
+                s.shellIntegration.commands = [...s.shellIntegration.commands.slice(-99), commandEntry]; // Keep last 100
+                s.shellIntegration.currentCommandId = commandEntry.id;
+            }
+            return updated;
+        });
+        
+        return commandEntry.id;
+    }, []);
+
+    // Complete a tracked command with exit code
+    const completeCommandTracking = useCallback((sessionId: string, exitCode: number = 0) => {
+        setSessions(prev => {
+            const updated = new Map(prev);
+            const s = updated.get(sessionId);
+            if (s && s.shellIntegration.currentCommandId) {
+                const endTime = new Date();
+                s.shellIntegration.commands = s.shellIntegration.commands.map(cmd => 
+                    cmd.id === s.shellIntegration.currentCommandId
+                        ? {
+                            ...cmd,
+                            endTime,
+                            duration: endTime.getTime() - cmd.startTime.getTime(),
+                            exitCode,
+                            endLine: s.terminal?.buffer.active.cursorY ?? cmd.startLine,
+                            decoration: exitCode === 0 ? 'success' : 'error',
+                        }
+                        : cmd
+                );
+                s.shellIntegration.currentCommandId = undefined;
+            }
+            return updated;
+        });
+    }, []);
+
+    // Track directory change
+    const trackDirectoryChange = useCallback((sessionId: string, newDir: string) => {
+        setSessions(prev => {
+            const updated = new Map(prev);
+            const s = updated.get(sessionId);
+            if (s) {
+                const existingDir = s.shellIntegration.directories.find(d => d.path === newDir);
+                if (existingDir) {
+                    s.shellIntegration.directories = s.shellIntegration.directories.map(d =>
+                        d.path === newDir
+                            ? { ...d, lastVisited: new Date(), visitCount: d.visitCount + 1 }
+                            : d
+                    );
+                } else {
+                    s.shellIntegration.directories = [
+                        ...s.shellIntegration.directories.slice(-49), // Keep last 50
+                        { path: newDir, lastVisited: new Date(), visitCount: 1 }
+                    ];
+                }
+                s.shellIntegration.currentDirectory = newDir;
+            }
+            return updated;
+        });
+    }, []);
+
+    // Navigate to previous command (Cmd+Up)
+    const navigateToPreviousCommand = useCallback(() => {
+        const session = getActiveSession();
+        if (!session?.terminal || session.shellIntegration.commands.length === 0) return;
+        
+        const commands = session.shellIntegration.commands;
+        const currentIndex = session.shellIntegration.selectedCommandIndex;
+        const newIndex = currentIndex < 0 
+            ? commands.length - 1 
+            : Math.max(0, currentIndex - 1);
+        
+        const targetCommand = commands[newIndex];
+        if (targetCommand && targetCommand.startLine !== undefined) {
+            session.terminal.scrollToLine(targetCommand.startLine);
+            setSessions(prev => {
+                const updated = new Map(prev);
+                const s = updated.get(session.id);
+                if (s) s.shellIntegration.selectedCommandIndex = newIndex;
+                return updated;
+            });
+        }
+    }, [getActiveSession]);
+
+    // Navigate to next command (Cmd+Down)
+    const navigateToNextCommand = useCallback(() => {
+        const session = getActiveSession();
+        if (!session?.terminal || session.shellIntegration.commands.length === 0) return;
+        
+        const commands = session.shellIntegration.commands;
+        const currentIndex = session.shellIntegration.selectedCommandIndex;
+        const newIndex = currentIndex < 0 
+            ? 0 
+            : Math.min(commands.length - 1, currentIndex + 1);
+        
+        const targetCommand = commands[newIndex];
+        if (targetCommand && targetCommand.startLine !== undefined) {
+            session.terminal.scrollToLine(targetCommand.startLine);
+            setSessions(prev => {
+                const updated = new Map(prev);
+                const s = updated.get(session.id);
+                if (s) s.shellIntegration.selectedCommandIndex = newIndex;
+                return updated;
+            });
+        }
+    }, [getActiveSession]);
+
+    // Re-run a command from history
+    const rerunCommand = useCallback((sessionId: string, command: string) => {
+        const session = sessionsRef.current.get(sessionId);
+        if (!session?.terminal) return;
+        
+        if (session.isConnected && session.socket) {
+            session.socket.emit('input', command + '\r');
+        } else {
+            session.terminal.write(command);
+            handleSimulatedCommand(command, session);
+        }
+    }, [handleSimulatedCommand]);
+
+    // Get recent directories sorted by last visit
+    const getRecentDirectories = useCallback((sessionId: string): DirectoryEntry[] => {
+        const session = sessionsRef.current.get(sessionId);
+        if (!session) return [];
+        return [...session.shellIntegration.directories]
+            .sort((a, b) => b.lastVisited.getTime() - a.lastVisited.getTime())
+            .slice(0, 10);
+    }, []);
+
+    // Parse OSC 633 escape sequences (VS Code shell integration protocol)
+    const parseOSC633Sequence = useCallback((data: string, sessionId: string) => {
+        // OSC 633 ; A ST - Mark prompt start
+        // OSC 633 ; B ST - Mark prompt end  
+        // OSC 633 ; C ST - Mark pre-execution
+        // OSC 633 ; D [; <exitcode>] ST - Mark execution finished
+        // OSC 633 ; E ; <commandline> ST - Set command line
+        // OSC 633 ; P ; <Property>=<Value> ST - Set property
+        
+        const oscPattern = /\x1b\]633;([A-Z]);?([^\x07\x1b]*)?(?:\x07|\x1b\\)/g;
+        let match;
+        
+        while ((match = oscPattern.exec(data)) !== null) {
+            const [, type, value] = match;
+            
+            switch (type) {
+                case 'A': // Prompt start
+                    break;
+                case 'B': // Prompt end
+                    break;
+                case 'C': // Pre-execution (command about to run)
+                    break;
+                case 'D': // Execution finished
+                    const exitCode = value ? parseInt(value, 10) : 0;
+                    completeCommandTracking(sessionId, exitCode);
+                    break;
+                case 'E': // Command line
+                    if (value) {
+                        const decodedCommand = value
+                            .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+                            .replace(/\\\\/g, '\\');
+                        startCommandTracking(sessionId, decodedCommand);
+                    }
+                    break;
+                case 'P': // Property
+                    if (value) {
+                        const [prop, propValue] = value.split('=');
+                        if (prop === 'Cwd') {
+                            trackDirectoryChange(sessionId, propValue);
+                        }
+                    }
+                    break;
+            }
+        }
+    }, [startCommandTracking, completeCommandTracking, trackDirectoryChange]);
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SELF-HEALING RUNTIME - Error Detection & AI Diagnosis
@@ -719,6 +1040,9 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
         // Track command execution time
         const startTime = Date.now();
+        
+        // Shell Integration: Start tracking this command
+        const commandId = startCommandTracking(session.id, trimmed);
 
         // Add to history
         const updatedHistory = [...session.commandHistory, trimmed];
@@ -738,7 +1062,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
         const args = parts.slice(1);
 
         // Update duration after command completes
-        const updateDuration = () => {
+        const updateDuration = (exitCode: number = 0) => {
             const duration = Date.now() - startTime;
             setSessions(prev => {
                 const updated = new Map(prev);
@@ -748,6 +1072,8 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 }
                 return updated;
             });
+            // Shell Integration: Complete command tracking
+            completeCommandTracking(session.id, exitCode);
         };
 
         // Filesystem commands - try real filesystem first, fall back to virtual
@@ -783,7 +1109,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         ).join('  ');
                         term.write(`\r\n${output}\r\n`);
                     }
-                    updateDuration();
+                    updateDuration(0);
                     writePrompt(term, session.cwd);
                     return;
                 }
@@ -847,12 +1173,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                     });
                     session.cwd = newCwd;
                     onCwdChange?.(newCwd);
-                    updateDuration();
+                    trackDirectoryChange(session.id, newCwd); // Shell Integration
+                    updateDuration(0);
                     writePrompt(term, session.cwd);
                     return;
                 } else if (checkData.success && !checkData.exists) {
                     term.write(`\r\n\x1b[38;2;239;68;68mcd: no such directory: ${target}\x1b[0m\r\n`);
-                    updateDuration();
+                    updateDuration(1); // Error exit code
                     writePrompt(term, session.cwd);
                     return;
                 }
@@ -889,6 +1216,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             });
             session.cwd = newCwd;
             onCwdChange?.(newCwd);
+            trackDirectoryChange(session.id, newCwd); // Shell Integration
         } else if (action === 'pwd') {
             term.write(`\r\n${session.cwd}\r\n`);
         } else if (action === 'mkdir') {
@@ -930,7 +1258,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         } else {
                             term.write(`\r\n${content}\r\n`);
                         }
-                        updateDuration();
+                        updateDuration(0);
                         writePrompt(term, session.cwd);
                         return;
                     }
@@ -1131,7 +1459,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
             }
         }
         
-        updateDuration();
+        updateDuration(0);
         writePrompt(term, session.cwd);
     }, [getFilesAtCurrentDir, writePrompt, onNewFolder, onNewFile, onDeleteFile, onCloudAuth, onAiIntentRequest, activeModelId, username, killSession]);
 
@@ -1442,6 +1770,8 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 pythonVersion: '3.12.0',
                 gitBranch: 'main',
             },
+            // Shell Integration (VS Code-style)
+            shellIntegration: createShellIntegrationState(),
         };
 
         setSessions(prev => {
@@ -1801,9 +2131,18 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                     <button
                         onClick={() => setShowHistoryPanel(!showHistoryPanel)}
                         className={`p-1.5 rounded-lg transition-all ${showHistoryPanel ? 'bg-blue-500/20 text-blue-400' : 'text-zinc-500 hover:text-white hover:bg-white/[0.06]'}`}
-                        title="Command History (⌘H)"
+                        title="Command History (⌘R)"
                     >
                         <History size={14} />
+                    </button>
+                    
+                    {/* Recent Directories (VS Code-style) */}
+                    <button
+                        onClick={() => setShowRecentDirectories(!showRecentDirectories)}
+                        className={`p-1.5 rounded-lg transition-all ${showRecentDirectories ? 'bg-cyan-500/20 text-cyan-400' : 'text-zinc-500 hover:text-white hover:bg-white/[0.06]'}`}
+                        title="Recent Directories (⌘G)"
+                    >
+                        <FolderOpen size={14} />
                     </button>
                     
                     {/* Bookmarks */}
@@ -1998,13 +2337,122 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
             {/* Terminal Content Area */}
             <div ref={terminalContainerRef} className="flex-1 overflow-hidden relative">
+                {/* Sticky Scroll Header (VS Code-style) */}
+                {showStickyScroll && activeSession?.shellIntegration.commands.length > 0 && (
+                    <div className="absolute top-0 left-0 right-0 z-30 bg-[#0a0a0f]/95 backdrop-blur-sm border-b border-white/[0.06] px-3 py-1.5">
+                        {(() => {
+                            const lastCmd = activeSession.shellIntegration.commands[activeSession.shellIntegration.commands.length - 1];
+                            if (!lastCmd) return null;
+                            return (
+                                <div className="flex items-center gap-2 text-xs">
+                                    {/* Decoration indicator */}
+                                    <div className={`w-2 h-2 rounded-full ${
+                                        lastCmd.decoration === 'running' ? 'bg-blue-500 animate-pulse' :
+                                        lastCmd.decoration === 'success' ? 'bg-emerald-500' :
+                                        lastCmd.decoration === 'error' ? 'bg-red-500' : 'bg-zinc-500'
+                                    }`} />
+                                    <span className="font-mono text-zinc-300 truncate max-w-[300px]">
+                                        {lastCmd.command}
+                                    </span>
+                                    {lastCmd.duration && (
+                                        <span className="text-[10px] text-zinc-600 font-mono">
+                                            {lastCmd.duration}ms
+                                        </span>
+                                    )}
+                                    {lastCmd.exitCode !== undefined && lastCmd.exitCode !== 0 && (
+                                        <span className="text-[10px] px-1.5 py-0.5 bg-red-500/20 text-red-400 rounded">
+                                            exit {lastCmd.exitCode}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })()}
+                    </div>
+                )}
+
+                {/* Command Decorations Gutter (VS Code-style) */}
+                {showCommandDecorations && activeSession?.shellIntegration.commands.length > 0 && (
+                    <div className="absolute left-0 top-0 bottom-0 w-6 z-20 pointer-events-auto">
+                        {activeSession.shellIntegration.commands.slice(-20).map((cmd, idx) => {
+                            // Approximate position based on command index
+                            const topOffset = 40 + (idx * 24);
+                            return (
+                                <div
+                                    key={cmd.id}
+                                    className="absolute left-1 group cursor-pointer"
+                                    style={{ top: `${topOffset}px` }}
+                                    onMouseEnter={() => setHoveredCommandId(cmd.id)}
+                                    onMouseLeave={() => setHoveredCommandId(null)}
+                                    onClick={() => {
+                                        if (activeSession.terminal && cmd.startLine !== undefined) {
+                                            activeSession.terminal.scrollToLine(cmd.startLine);
+                                        }
+                                    }}
+                                >
+                                    {/* Decoration circle */}
+                                    <div className={`w-3 h-3 rounded-full flex items-center justify-center transition-all ${
+                                        cmd.decoration === 'running' ? 'bg-blue-500/30 ring-2 ring-blue-500/50' :
+                                        cmd.decoration === 'success' ? 'bg-emerald-500/20 hover:bg-emerald-500/40' :
+                                        cmd.decoration === 'error' ? 'bg-red-500/30 ring-1 ring-red-500/50' : 'bg-zinc-600/30'
+                                    }`}>
+                                        {cmd.decoration === 'success' && (
+                                            <CheckCircle size={8} className="text-emerald-400" />
+                                        )}
+                                        {cmd.decoration === 'error' && (
+                                            <XCircle size={8} className="text-red-400" />
+                                        )}
+                                        {cmd.decoration === 'running' && (
+                                            <Loader2 size={8} className="text-blue-400 animate-spin" />
+                                        )}
+                                    </div>
+                                    
+                                    {/* Tooltip on hover */}
+                                    {hoveredCommandId === cmd.id && (
+                                        <div className="absolute left-6 top-0 z-50 w-64 bg-[#1a1d24]/95 backdrop-blur-xl border border-white/10 rounded-lg shadow-xl p-2 pointer-events-auto">
+                                            <div className="text-[10px] text-zinc-500 mb-1">
+                                                {cmd.startTime.toLocaleTimeString()}
+                                                {cmd.duration && ` • ${cmd.duration}ms`}
+                                            </div>
+                                            <div className="font-mono text-xs text-zinc-300 truncate mb-2">
+                                                {cmd.command}
+                                            </div>
+                                            <div className="flex items-center gap-1">
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        rerunCommand(activeSession.id, cmd.command);
+                                                    }}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 rounded text-zinc-300"
+                                                >
+                                                    <RotateCcw size={10} />
+                                                    Re-run
+                                                </button>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        copyToClipboard(cmd.command);
+                                                    }}
+                                                    className="flex items-center gap-1 px-2 py-1 text-[10px] bg-white/5 hover:bg-white/10 rounded text-zinc-300"
+                                                >
+                                                    <Copy size={10} />
+                                                    Copy
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                )}
+
                 {currentPane?.sessions.map(sessionId => {
                     const isActive = sessionId === currentPane.activeSessionId;
                     return (
                         <div
                             key={sessionId}
                             id={`terminal-${sessionId}`}
-                            className={`absolute inset-0 p-3 ${isActive ? 'block' : 'hidden'}`}
+                            className={`absolute inset-0 p-3 ${showCommandDecorations ? 'pl-8' : ''} ${isActive ? 'block' : 'hidden'}`}
                         />
                     );
                 })}
@@ -2014,7 +2462,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                     <div 
                         className="absolute pointer-events-none z-40"
                         style={{
-                            left: `${(activeSession.terminal.buffer.active.cursorX * parseInt(fontSize) * 0.6) + 16}px`,
+                            left: `${(activeSession.terminal.buffer.active.cursorX * parseInt(fontSize) * 0.6) + (showCommandDecorations ? 36 : 16)}px`,
                             top: `${(activeSession.terminal.buffer.active.cursorY * parseInt(fontSize) * 1.4) + 12}px`,
                         }}
                     >
@@ -2045,6 +2493,16 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                             <span className="font-medium">{activeSession.environment.gitBranch}</span>
                         </span>
                     )}
+                    {/* Shell Integration Quality Indicator */}
+                    {activeSession?.shellIntegration.enabled && (
+                        <span 
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 cursor-help"
+                            title={`Shell Integration: ${activeSession.shellIntegration.quality} quality - ${activeSession.shellIntegration.commands.length} commands tracked`}
+                        >
+                            <Layers size={9} />
+                            <span className="text-[9px] font-medium uppercase">{activeSession.shellIntegration.quality}</span>
+                        </span>
+                    )}
                 </div>
                 <div className="flex items-center gap-3">
                     {activeSession?.environment.nodeVersion && (
@@ -2060,6 +2518,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         </span>
                     )}
                     <div className="w-px h-3 bg-white/10" />
+                    {/* Commands tracked count */}
+                    {activeSession?.shellIntegration.commands.length > 0 && (
+                        <span className="flex items-center gap-1 text-zinc-600">
+                            <Command size={9} />
+                            <span className="font-mono">{activeSession.shellIntegration.commands.length}</span>
+                        </span>
+                    )}
                     <span className="flex items-center gap-1.5">
                         <Clock size={10} />
                         {activeSession?.startTime.toLocaleTimeString()}
@@ -2222,48 +2687,60 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
                             <div className="flex items-center gap-2">
                                 <History size={14} className="text-blue-400" />
-                                <span className="text-xs font-semibold text-white">Command History</span>
+                                <span className="text-xs font-semibold text-white">Run Recent Command</span>
                             </div>
-                            <button onClick={() => setShowHistoryPanel(false)} className="text-zinc-500 hover:text-white">
-                                <X size={14} />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                <span className="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-zinc-500">⌘R</span>
+                                <button onClick={() => setShowHistoryPanel(false)} className="text-zinc-500 hover:text-white">
+                                    <X size={14} />
+                                </button>
+                            </div>
                         </div>
                         <div className="p-2 max-h-72 overflow-y-auto">
-                            {activeSession?.commandHistory.length === 0 ? (
+                            {activeSession?.shellIntegration.commands.length === 0 ? (
                                 <div className="text-center py-6 text-zinc-600 text-sm">No commands yet</div>
                             ) : (
-                                [...(activeSession?.commandHistory || [])].reverse().map((cmd, i) => (
+                                [...(activeSession?.shellIntegration.commands || [])].reverse().map((cmd) => (
                                     <div
-                                        key={i}
-                                        className="group flex items-center justify-between px-3 py-2 hover:bg-white/[0.04] rounded-lg"
+                                        key={cmd.id}
+                                        className="group flex items-center gap-2 px-3 py-2 hover:bg-white/[0.04] rounded-lg"
                                     >
+                                        {/* Decoration indicator */}
+                                        <div className={`w-2 h-2 rounded-full shrink-0 ${
+                                            cmd.decoration === 'success' ? 'bg-emerald-500' :
+                                            cmd.decoration === 'error' ? 'bg-red-500' :
+                                            cmd.decoration === 'running' ? 'bg-blue-500 animate-pulse' : 'bg-zinc-500'
+                                        }`} />
                                         <button
                                             onClick={() => {
-                                                const session = getActiveSession();
-                                                if (session?.terminal) {
-                                                    if (session.isConnected && session.socket) {
-                                                        session.socket.emit('input', cmd + '\r');
-                                                    } else {
-                                                        session.terminal.write(cmd);
-                                                        handleSimulatedCommand(cmd, session);
-                                                    }
+                                                if (activeSession) {
+                                                    rerunCommand(activeSession.id, cmd.command);
                                                 }
                                                 setShowHistoryPanel(false);
                                             }}
                                             className="flex-1 text-left font-mono text-sm text-zinc-300 truncate"
                                         >
-                                            {cmd}
+                                            {cmd.command}
                                         </button>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 shrink-0">
+                                            <span className="text-[9px] text-zinc-600 font-mono">
+                                                {cmd.duration ? `${cmd.duration}ms` : ''}
+                                            </span>
                                             <button
-                                                onClick={() => copyToClipboard(cmd)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    copyToClipboard(cmd.command);
+                                                }}
                                                 className="p-1 text-zinc-500 hover:text-white rounded"
                                                 title="Copy"
                                             >
                                                 <Copy size={12} />
                                             </button>
                                             <button
-                                                onClick={() => activeSession && bookmarkCommand(activeSession.id, cmd)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (activeSession) bookmarkCommand(activeSession.id, cmd.command);
+                                                }}
                                                 className="p-1 text-zinc-500 hover:text-yellow-400 rounded"
                                                 title="Bookmark"
                                             >
@@ -2273,6 +2750,85 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                                     </div>
                                 ))
                             )}
+                        </div>
+                        <div className="px-3 py-2 border-t border-white/5 text-[10px] text-zinc-600">
+                            <span className="flex items-center gap-2">
+                                <span>↑↓ Navigate</span>
+                                <span>⏎ Run</span>
+                                <span>⌥⏎ Insert without running</span>
+                            </span>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Recent Directories Panel (VS Code-style ⌘G) */}
+            {showRecentDirectories && (
+                <>
+                    <div className="fixed inset-0 z-40" onClick={() => setShowRecentDirectories(false)} />
+                    <div className="absolute top-12 right-4 w-80 bg-[#1a1d24]/95 backdrop-blur-xl border border-white/10 rounded-xl shadow-2xl overflow-hidden z-50">
+                        <div className="px-3 py-2 border-b border-white/5 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <FolderOpen size={14} className="text-cyan-400" />
+                                <span className="text-xs font-semibold text-white">Go to Recent Directory</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <span className="text-[9px] px-1.5 py-0.5 bg-white/5 rounded text-zinc-500">⌘G</span>
+                                <button onClick={() => setShowRecentDirectories(false)} className="text-zinc-500 hover:text-white">
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        </div>
+                        <div className="p-2 max-h-72 overflow-y-auto">
+                            {(activeSession ? getRecentDirectories(activeSession.id) : []).length === 0 ? (
+                                <div className="text-center py-6 text-zinc-600 text-sm">
+                                    <FolderOpen size={24} className="mx-auto mb-2 opacity-30" />
+                                    No recent directories
+                                    <div className="text-xs mt-1">Use 'cd' to navigate</div>
+                                </div>
+                            ) : (
+                                (activeSession ? getRecentDirectories(activeSession.id) : []).map((dir) => (
+                                    <div
+                                        key={dir.path}
+                                        className="group flex items-center gap-2 px-3 py-2 hover:bg-white/[0.04] rounded-lg"
+                                    >
+                                        <FolderOpen size={14} className="text-blue-400 shrink-0" />
+                                        <button
+                                            onClick={() => {
+                                                if (activeSession) {
+                                                    const cdCmd = `cd "${dir.path}"`;
+                                                    rerunCommand(activeSession.id, cdCmd);
+                                                }
+                                                setShowRecentDirectories(false);
+                                            }}
+                                            className="flex-1 text-left font-mono text-sm text-zinc-300 truncate"
+                                        >
+                                            {dir.path}
+                                        </button>
+                                        <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 shrink-0">
+                                            <span className="text-[9px] text-zinc-600">
+                                                {dir.visitCount}x
+                                            </span>
+                                            <button
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    copyToClipboard(dir.path);
+                                                }}
+                                                className="p-1 text-zinc-500 hover:text-white rounded"
+                                                title="Copy path"
+                                            >
+                                                <Copy size={12} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                        <div className="px-3 py-2 border-t border-white/5 text-[10px] text-zinc-600">
+                            <span className="flex items-center gap-2">
+                                <span>↑↓ Navigate</span>
+                                <span>⏎ Go to directory</span>
+                            </span>
                         </div>
                     </div>
                 </>
@@ -2508,6 +3064,14 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                         </div>
                         <div className="p-3 max-h-80 overflow-y-auto space-y-3">
                             {[
+                                { category: 'Shell Integration', shortcuts: [
+                                    { keys: '⌘ ↑', desc: 'Previous command' },
+                                    { keys: '⌘ ↓', desc: 'Next command' },
+                                    { keys: '⌘ R', desc: 'Run recent command' },
+                                    { keys: '⌘ G', desc: 'Go to directory' },
+                                    { keys: '⇧ ⌘ ↑', desc: 'Select to previous command' },
+                                    { keys: '⇧ ⌘ ↓', desc: 'Select to next command' },
+                                ]},
                                 { category: 'Navigation', shortcuts: [
                                     { keys: '⌘ K', desc: 'Clear terminal' },
                                     { keys: '⌘ F', desc: 'Search output' },
