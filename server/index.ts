@@ -1393,7 +1393,8 @@ app.get('/api/extensions', async (req, res) => {
 const distPath = path.join(__dirname, '..', 'dist');
 app.use(express.static(distPath));
 
-app.get('*', (req, res) => {
+// SPA fallback - use named parameter for Express 5.x compatibility
+app.get('/{*path}', (req, res) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/socket.io/')) return res.status(404).json({ error: 'Not found.' });
   res.sendFile(path.join(distPath, 'index.html'));
 });

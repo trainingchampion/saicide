@@ -97,8 +97,8 @@ if (fs.existsSync(distPath)) {
   }));
 }
 
-// SPA fallback
-app.get('*', (req, res) => {
+// SPA fallback - use named parameter for Express 5.x compatibility
+app.get('/{*path}', (req, res) => {
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
