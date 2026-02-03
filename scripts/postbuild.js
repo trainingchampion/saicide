@@ -1,16 +1,15 @@
-// Postbuild script - delete root index.html to prevent Apache from serving it
+// Postbuild script - keep index.html for Vite builds
 const fs = require('fs');
 const path = require('path');
 
 const rootIndexPath = path.join(__dirname, '..', 'index.html');
+const distIndexPath = path.join(__dirname, '..', 'dist', 'index.html');
 
-if (fs.existsSync(rootIndexPath)) {
-  try {
-    fs.unlinkSync(rootIndexPath);
-    console.log('✓ Deleted root index.html');
-  } catch (e) {
-    console.log('Could not delete root index.html:', e.message);
-  }
+// Check that dist/index.html exists (build was successful)
+if (fs.existsSync(distIndexPath)) {
+  console.log('✓ Build completed successfully');
+  console.log('  - dist/index.html will be served in production');
+  console.log('  - Root index.html preserved for development builds');
 } else {
-  console.log('Root index.html does not exist (already deleted or never created)');
+  console.log('Warning: dist/index.html not found - build may have failed');
 }
