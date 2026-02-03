@@ -864,6 +864,64 @@ const CloudStudio: React.FC<CloudStudioProps> = ({ design, setDesign }) => {
     }
   }, []);
 
+  // Handle GitHub OAuth callback - check for stored OAuth code after redirect
+  useEffect(() => {
+    const handleGitHubOAuthCallback = async () => {
+      const code = sessionStorage.getItem('github_oauth_code');
+      const state = sessionStorage.getItem('github_oauth_state_received');
+      
+      if (code && state) {
+        // Clean up sessionStorage
+        sessionStorage.removeItem('github_oauth_code');
+        sessionStorage.removeItem('github_oauth_state_received');
+        
+        try {
+          // Try to exchange code via backend API
+          const response = await fetch('/api/auth/github/callback', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ code, state }),
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            if (data.user) {
+              // Backend returned user data - sign them in
+              const signedInUser = await authService.signInWithGitHubToken(data.accessToken);
+              setCurrentUser(signedInUser);
+              setTeamMembers([signedInUser]);
+              setViewMode(ViewMode.WORKSPACE);
+              return;
+            }
+          }
+        } catch (error) {
+          console.log('Backend OAuth exchange not available, checking stored token...');
+        }
+        
+        // Fallback: Check if we have an existing GitHub token from a previous auth
+        const existingToken = localStorage.getItem('github_access_token');
+        if (existingToken) {
+          try {
+            const user = await authService.signInWithGitHubToken(existingToken);
+            setCurrentUser(user);
+            setTeamMembers([user]);
+            setViewMode(ViewMode.WORKSPACE);
+            return;
+          } catch (error) {
+            console.error('GitHub re-auth failed:', error);
+          }
+        }
+        
+        // If no backend and no stored token, show auth modal to let user know
+        // GitHub OAuth requires a backend to exchange the code
+        console.log('GitHub OAuth requires backend code exchange. Opening auth modal for alternative methods.');
+        setIsAuthModalOpen(true);
+      }
+    };
+    
+    handleGitHubOAuthCallback();
+  }, []);
+
   useEffect(() => {
     const selectedTheme = THEMES.find(t => t.name === theme) || THEMES[0];
     Object.entries(selectedTheme.colors).forEach(([key, value]) => {

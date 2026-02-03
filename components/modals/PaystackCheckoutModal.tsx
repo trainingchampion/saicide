@@ -11,7 +11,7 @@ interface PaystackCheckoutModalProps {
 }
 
 // Configuration
-const PAYSTACK_PUBLIC_KEY = 'pk_live_ed60e4f4795819681d9d81227a608c66a60c2a48';
+const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_ed60e4f4795819681d9d81227a608c66a60c2a48';
 const PRICE_USD = 20;
 const CONVERSION_RATE = 1600; // 1 USD to NGN
 const PRICE_NGN = PRICE_USD * CONVERSION_RATE;

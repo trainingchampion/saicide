@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback, useMemo, Component, ErrorInfo, ReactNode } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -6,6 +6,58 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { io, Socket } from 'socket.io-client';
 import { FileNode, GitStatus } from '../types';
+
+// Error Boundary to prevent terminal crashes from breaking the entire app
+interface ErrorBoundaryProps {
+    children: ReactNode;
+    fallback?: ReactNode;
+}
+
+interface ErrorBoundaryState {
+    hasError: boolean;
+    error: Error | null;
+}
+
+class TerminalErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+    constructor(props: ErrorBoundaryProps) {
+        super(props);
+        this.state = { hasError: false, error: null };
+    }
+
+    static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+        return { hasError: true, error };
+    }
+
+    componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+        console.error('Terminal Error:', error, errorInfo);
+    }
+
+    render() {
+        if (this.state.hasError) {
+            return this.props.fallback || (
+                <div className="h-full w-full bg-[#0a0a0f] flex flex-col items-center justify-center p-6">
+                    <div className="text-red-400 mb-4 text-sm font-mono">Terminal Error</div>
+                    <div className="text-zinc-500 text-xs text-center max-w-md mb-4">
+                        The terminal encountered an error. This is usually caused by browser restrictions or missing dependencies.
+                    </div>
+                    <button
+                        onClick={() => this.setState({ hasError: false, error: null })}
+                        className="px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-sm text-zinc-300 transition-all"
+                    >
+                        Retry
+                    </button>
+                    {this.state.error && (
+                        <div className="mt-4 text-[10px] text-zinc-600 font-mono max-w-md overflow-hidden">
+                            {this.state.error.message}
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        return this.props.children;
+    }
+}
 import { 
     Loader2, 
     Activity, 
@@ -1465,27 +1517,28 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
     // Initialize terminal for a session
     const initializeTerminal = useCallback((sessionId: string) => {
-        const container = document.getElementById(`terminal-${sessionId}`);
-        if (!container) return;
+        try {
+            const container = document.getElementById(`terminal-${sessionId}`);
+            if (!container) return;
 
-        // Inject CSS if needed
-        if (!document.getElementById('xterm-css')) {
-            const style = document.createElement('style');
-            style.id = 'xterm-css';
-            style.textContent = XTERM_CSS;
-            document.head.appendChild(style);
-        }
+            // Inject CSS if needed
+            if (!document.getElementById('xterm-css')) {
+                const style = document.createElement('style');
+                style.id = 'xterm-css';
+                style.textContent = XTERM_CSS;
+                document.head.appendChild(style);
+            }
 
-        const term = new Terminal({
-            cursorBlink: true,
-            cursorStyle: 'bar',
-            cursorWidth: 2,
-            fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
-            fontSize: parseInt(fontSize),
-            fontWeight: '400',
-            fontWeightBold: '600',
-            letterSpacing: 0,
-            lineHeight: 1.4,
+            const term = new Terminal({
+                cursorBlink: true,
+                cursorStyle: 'bar',
+                cursorWidth: 2,
+                fontFamily: '"JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace',
+                fontSize: parseInt(fontSize),
+                fontWeight: '400',
+                fontWeightBold: '600',
+                letterSpacing: 0,
+                lineHeight: 1.4,
             theme: terminalTheme,
             allowProposedApi: true,
             scrollback: 10000,
@@ -1727,6 +1780,10 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
         // Focus terminal
         term.focus();
+        } catch (error) {
+            console.error('Terminal initialization error:', error);
+            // Terminal will show error state via error boundary
+        }
     }, [fontSize, terminalTheme, writePrompt, handleSimulatedCommand, getAiSuggestion, suggestion]);
 
     // Create new terminal session
@@ -3171,4 +3228,13 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
 
 RealTerminal.displayName = 'RealTerminal';
 
-export default RealTerminal;
+// Wrapper component that includes error boundary
+const RealTerminalWithErrorBoundary = forwardRef<RealTerminalRef, RealTerminalProps>((props, ref) => (
+    <TerminalErrorBoundary>
+        <RealTerminal {...props} ref={ref} />
+    </TerminalErrorBoundary>
+));
+
+RealTerminalWithErrorBoundary.displayName = 'RealTerminalWithErrorBoundary';
+
+export default RealTerminalWithErrorBoundary;

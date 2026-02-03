@@ -1,6 +1,6 @@
 import { TeamMember } from '../types';
 
-const PAYSTACK_PUBLIC_KEY = 'pk_live_ed60e4f4795819681d9d81227a608c66a60c2a48';
+const PAYSTACK_PUBLIC_KEY = import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || 'pk_live_ed60e4f4795819681d9d81227a608c66a60c2a48';
 const USD_TO_NGN = 1600;
 
 export interface Plan {
