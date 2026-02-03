@@ -447,34 +447,28 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
                 // Navigate to previous command
                 e.preventDefault();
                 const result = navigateToPreviousCommand(activeSession.shellIntegration);
-                if (result) {
-                    setActiveSessionId(prev => {
-                        setSessions(prevSessions => {
-                            const newSessions = new Map(prevSessions);
-                            const session = newSessions.get(activeSessionId);
-                            if (session) {
-                                session.shellIntegration = result;
-                            }
-                            return newSessions;
-                        });
-                        return prev;
+                if (result && activeSession) {
+                    setSessions(prevSessions => {
+                        const newSessions = new Map(prevSessions);
+                        const session = newSessions.get(activeSession.id);
+                        if (session) {
+                            session.shellIntegration = result;
+                        }
+                        return newSessions;
                     });
                 }
             } else if (isMeta && e.key === 'ArrowDown') {
                 // Navigate to next command
                 e.preventDefault();
                 const result = navigateToNextCommand(activeSession.shellIntegration);
-                if (result) {
-                    setActiveSessionId(prev => {
-                        setSessions(prevSessions => {
-                            const newSessions = new Map(prevSessions);
-                            const session = newSessions.get(activeSessionId);
-                            if (session) {
-                                session.shellIntegration = result;
-                            }
-                            return newSessions;
-                        });
-                        return prev;
+                if (result && activeSession) {
+                    setSessions(prevSessions => {
+                        const newSessions = new Map(prevSessions);
+                        const session = newSessions.get(activeSession.id);
+                        if (session) {
+                            session.shellIntegration = result;
+                        }
+                        return newSessions;
                     });
                 }
             } else if (isMeta && e.key === 'g') {
@@ -495,7 +489,7 @@ const RealTerminal = forwardRef<RealTerminalRef, RealTerminalProps>(({
         
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, [activeSession, activeSessionId]);
+    }, [activeSession]);
     
     // Terminal themes
     const terminalTheme = useMemo(() => ({
